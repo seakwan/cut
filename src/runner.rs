@@ -6,6 +6,7 @@
 //!
 //! 这一层不认识 gpui_kit：它只返回数据，界面怎么显示是 view 的事。
 
+use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -122,7 +123,8 @@ pub struct Cancellation {
     flag: Arc<AtomicBool>,
     /// 正在跑的子进程。放在这里是为了能**从主线程直接 kill**：
     /// 只靠标志位的话，得等 ffmpeg 吐出下一条进度才反应得过来。
-    child: Arc<Mutex<Option<Child>>>,
+    /// 用 HashMap 存所有正在跑的进程（并发 worker 可能同时有多个）。
+    child: Arc<Mutex<HashMap<u64, Child>>>,
 }
 
 impl Default for Cancellation {
@@ -135,18 +137,16 @@ impl Cancellation {
     pub fn new() -> Self {
         Self {
             flag: Arc::new(AtomicBool::new(false)),
-            child: Arc::new(Mutex::new(None)),
+            child: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     pub fn cancel(&self) {
         self.flag.store(true, Ordering::SeqCst);
-        // take() 而不是 as_mut()：把子进程从槽里拿走，读 stdout 的那个线程看到 None
-        // 就知道是自己被抢先 kill 了，不会再 wait 第二次（那会报 "No child processes"）。
-        let mut slot = self.lock_child();
-        if let Some(mut child) = slot.take() {
+        // 杀掉所有注册了的子进程，但不移除（让 run_step 自己 take 回去处理）
+        let mut children = self.lock_child();
+        for (_, child) in children.iter_mut() {
             let _ = child.kill();
-            let _ = child.wait();
         }
     }
 
@@ -155,7 +155,7 @@ impl Cancellation {
     }
 
     /// 锁被毒（某个线程 panic 在临界区里）也要能继续取消，否则关窗时会留下孤儿 ffmpeg。
-    fn lock_child(&self) -> std::sync::MutexGuard<'_, Option<Child>> {
+    fn lock_child(&self) -> std::sync::MutexGuard<'_, HashMap<u64, Child>> {
         self.child
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -163,10 +163,15 @@ impl Cancellation {
 }
 
 impl Drop for Cancellation {
-    /// 最后一个持有者消失（通常是关窗）时兜底 kill，不留孤儿进程。
+    /// 最后一个持有者消失（通常是关窗）时兜底 kill + wait，不留孤儿进程。
     fn drop(&mut self) {
         if Arc::strong_count(&self.flag) == 1 {
-            self.cancel();
+            self.flag.store(true, Ordering::SeqCst);
+            let mut children = self.lock_child();
+            for (_, mut child) in children.drain() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
         }
     }
 }
@@ -486,7 +491,8 @@ fn run_step(
     });
 
     let stdout = child.stdout.take().expect("上面刚 piped 过");
-    *cancel.lock_child() = Some(child);
+    let child_id = child.id() as u64;
+    cancel.lock_child().insert(child_id, child);
 
     let step_seconds = step.seconds();
     for line in BufReader::new(stdout).lines() {
@@ -499,14 +505,17 @@ fn run_step(
         }
     }
 
-    let Some(mut child) = cancel.lock_child().take() else {
-        // 被 cancel() 抢先 kill 并 wait 过了。
-        return Err(RunError::Cancelled);
-    };
+    let mut child = cancel.lock_child().remove(&(child_id as u64)).expect("自己的进程一定在");
     let status = child
         .wait()
         .map_err(|err| RunError::Failed(format!("等不到 ffmpeg 结束：{err}")))?;
     let stderr_text = drained.join().unwrap_or_default();
+
+    // 取消检查要在成功检查之前：被 kill 的 ffmpeg 退出码一定不是 0，
+    // 如果先判 success() 会谎报成 Failed。
+    if cancel.is_cancelled() {
+        return Err(RunError::Cancelled);
+    }
 
     // 实测 ffmpeg 9.0.2：`-n`（跳过）遇到已存在文件时**退出码是 0**，
     // 只在 stderr 写 "File '…' already exists. Exiting."。
@@ -517,9 +526,6 @@ fn run_step(
 
     if !status.success() {
         return Err(RunError::Failed(stderr_tail(&stderr_text)));
-    }
-    if cancel.is_cancelled() {
-        return Err(RunError::Cancelled);
     }
 
     Ok(StepOutcome::Done)
