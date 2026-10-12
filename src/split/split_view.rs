@@ -19,11 +19,11 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::components::{
-    file_rows, log_rows, segment_button, settings_row, settings_row_desc, settings_title, FileRow,
-    LogRow, PathsCallback, PickCallback, QueueShell, SelectCallback,
+    file_rows, segment_button, settings_row, settings_row_desc, settings_title, FileRow,
+    PathsCallback, PickCallback, QueueShell, SelectCallback,
 };
 use crate::format;
-use crate::jobs::{FileEntry, FileId, JobStore, LogLevel, Settings, SplitSettings};
+use crate::jobs::{FileEntry, FileId, JobStore, Settings, SplitSettings};
 use crate::media::{AudioFormat, FfmpegEnv, Overwrite, ResolveError};
 use crate::pick;
 use crate::scan::{self, ScanOutcome};
@@ -261,14 +261,6 @@ impl SplitView {
     fn clear(&mut self, cx: &mut Context<Self>) {
         self.store.update(cx, |store, cx| {
             store.clear();
-            store.push_log(LogLevel::Info, "已清空列表");
-            cx.notify();
-        });
-    }
-
-    fn clear_log(&mut self, cx: &mut Context<Self>) {
-        self.store.update(cx, |store, cx| {
-            store.clear_log();
             cx.notify();
         });
     }
@@ -278,7 +270,6 @@ impl SplitView {
 struct Snapshot {
     settings: SplitSettings,
     rows: Vec<FileRow>,
-    log: Vec<LogRow>,
     preview: String,
     has_files: bool,
     /// 队列里有 FLAC 时要改口：它既不能直拷也不能走 segment muxer（实测 ffmpeg 9.0.2），
@@ -300,7 +291,6 @@ impl Render for SplitView {
 
             Snapshot {
                 rows: file_rows(store.files(), store.selected()),
-                log: log_rows(store.log()),
                 has_files: !store.files().is_empty(),
                 has_flac: store
                     .files()
@@ -334,29 +324,9 @@ impl Render for SplitView {
             Rc::new(move |paths, window, cx| add(&paths, window, cx))
         };
 
-        let on_clear_log: crate::components::ClearLogCallback = {
-            let clear = cx.listener(|this: &mut Self, _, _, cx| this.clear_log(cx));
-            Rc::new(move |window, cx| clear(&(), window, cx))
-        };
-
-        QueueShell::new(snapshot.rows, on_select, snapshot.log)
+        QueueShell::new(snapshot.rows, on_select)
             .on_pick(on_pick)
             .on_paths(on_paths)
-            .on_clear_log(on_clear_log)
-            .toolbar(
-                div()
-                    .h_flex()
-                    .gap_2()
-                    .w_full()
-                    .child(div().flex_1())
-                    .child(
-                        Button::new("split-clear")
-                            .small()
-                            .label("清空")
-                            .disabled(!has_files || busy)
-                            .on_click(cx.listener(|this: &mut Self, _, _, cx| this.clear(cx))),
-                    ),
-            )
             .sidebar(self.render_settings(&snapshot.settings, cx))
             .hint(snapshot.preview)
             .footer(
@@ -368,9 +338,15 @@ impl Render for SplitView {
                     .child(
                         Button::new("split-start")
                             .primary()
-                            .label(if busy { "切割中…" } else { "开始切割" })
+                            .label(if busy { "切割中…" } else { "开始" })
                             .disabled(!can_start)
                             .on_click(cx.listener(|this: &mut Self, _, _, cx| this.start(cx))),
+                    )
+                    .child(
+                        Button::new("split-clear")
+                            .label("清空列表")
+                            .disabled(!has_files || busy)
+                            .on_click(cx.listener(|this: &mut Self, _, _, cx| this.clear(cx))),
                     )
                     .child(
                         Button::new("split-cancel")

@@ -21,9 +21,17 @@ fn main() -> ExitCode {
             // 必须在创建任何组件视图之前初始化，`open_window` 会自己套上 `Root`。
             init(cx);
 
-            let _ = open_window(WindowOptions::default(), cx, |window, cx| {
-                cx.new(|cx| cut::app::AppView::new(window, cx))
-            })
+            let bounds = WindowBounds::centered(size(px(900.), px(600.)), cx);
+            let _ = open_window(
+                WindowOptions {
+                    window_bounds: Some(bounds),
+                    ..Default::default()
+                },
+                cx,
+                |window, cx| {
+                    cx.new(|cx| cut::app::AppView::new(window, cx))
+                },
+            )
             .expect("打不开窗口");
         });
 

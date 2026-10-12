@@ -13,17 +13,44 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::format;
-use crate::jobs::{FileEntry, FileId, LogLevel, LogLine};
+use crate::jobs::{FileEntry, FileId, FileStatus};
 use crate::scan;
+
+/// 状态分类：决定行尾显示哪个图标。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileStatusKind {
+    /// 未开始：就绪、已取消。
+    Pending,
+    /// 进行中：探测中、排队中、切割/转换中。
+    InProgress,
+    /// 完成。
+    Completed,
+    /// 失败。
+    Failed,
+}
+
+impl FileStatusKind {
+    fn from_status(status: &FileStatus) -> Self {
+        match status {
+            FileStatus::Done { .. } => Self::Completed,
+            FileStatus::ProbeFailed(_) | FileStatus::Failed(_) => Self::Failed,
+            FileStatus::Probing | FileStatus::Queued | FileStatus::Running { .. } => {
+                Self::InProgress
+            }
+            FileStatus::Ready | FileStatus::Cancelled => Self::Pending,
+        }
+    }
+}
 
 /// 一行待处理文件。视图负责把 `FileEntry` 投影成它。
 #[derive(Debug, Clone)]
 pub struct FileRow {
     id: FileId,
     title: String,
-    meta: String,
-    status: String,
-    is_failed: bool,
+    duration: String,
+    size: String,
+    status_kind: FileStatusKind,
+    status_text: String,
     is_selected: bool,
 }
 
@@ -31,34 +58,21 @@ pub struct FileRow {
 pub fn file_rows(files: &[FileEntry], selected: Option<FileId>) -> Vec<FileRow> {
     files
         .iter()
-        .map(|file| FileRow {
-            id: file.id(),
-            title: file.file_name().to_string(),
-            meta: file
-                .info()
-                .map(|info| {
-                    let mut parts = vec![format::duration(info.duration_s)];
-                    if let Some(size) = info.size_bytes {
-                        parts.push(format::bytes(size));
-                    }
-                    if let Some(codec) = &info.codec_name {
-                        parts.push(codec.to_uppercase());
-                    }
-                    parts.join(" · ")
-                })
-                .unwrap_or_else(|| "尚未探测".to_string()),
-            status: file.status().label().to_string(),
-            is_failed: file.status().is_failed(),
-            is_selected: selected == Some(file.id()),
-        })
-        .collect()
-}
-
-pub fn log_rows(log: &[LogLine]) -> Vec<LogRow> {
-    log.iter()
-        .map(|line| LogRow {
-            text: line.text.clone(),
-            is_error: line.level == LogLevel::Error,
+        .map(|file| {
+            let info = file.info();
+            FileRow {
+                id: file.id(),
+                title: file.file_name().to_string(),
+                duration: info
+                    .map(|info| format::duration(info.duration_s))
+                    .unwrap_or_else(|| "—".to_string()),
+                size: info
+                    .and_then(|info| info.size_bytes.map(format::bytes))
+                    .unwrap_or_else(|| "—".to_string()),
+                status_kind: FileStatusKind::from_status(file.status()),
+                status_text: file.status().label().to_string(),
+                is_selected: selected == Some(file.id()),
+            }
         })
         .collect()
 }
@@ -95,67 +109,105 @@ impl RenderOnce for FileList {
 
         let accent = cx.theme().accent;
         let muted = cx.theme().muted_foreground;
+        let border = cx.theme().border;
+        let success = cx.theme().success;
         let danger = cx.theme().danger;
+
+        let header = div()
+            .h_flex()
+            .items_center()
+            .gap_3()
+            .px_3()
+            .py_1p5()
+            .border_b_1()
+            .border_color(border)
+            .child(div().flex_1().min_w_0().text_xs().text_color(muted).child("文件名"))
+            .child(div().w_16().flex_shrink_0().text_xs().text_color(muted).child("时长"))
+            .child(div().w_16().flex_shrink_0().text_xs().text_color(muted).child("大小"))
+            .child(div().w_20().flex_shrink_0().text_xs().text_color(muted).child("状态"));
+
+        let rows = self.rows;
 
         div()
             .flex_1()
             .min_h_0()
             .v_flex()
-            .gap_1()
-            .children(self.rows.into_iter().map(|row| {
-                let id = row.id;
-                let on_select = self.on_select.clone();
-                let accent = accent;
-                let muted = muted;
-                let danger = danger;
-
+            .child(header)
+            .child(
                 div()
-                    .id(("file-row", id.value()))
-                    .h_flex()
-                    .items_center()
-                    .gap_3()
-                    .px_3()
-                    .py_2()
-                    .rounded_lg()
-                    .cursor_pointer()
-                    .when(row.is_selected, |this| this.bg(accent))
-                    .on_click(move |_, window, cx| on_select(&id, window, cx))
-                    .child(
+                    .flex_1()
+                    .min_h_0()
+                    .v_flex()
+                    .gap_0p5()
+                    .overflow_y_scrollbar()
+                    .children(rows.into_iter().map(|row| {
+                        let id = row.id;
+                        let on_select = self.on_select.clone();
+
+                        let status_color = match row.status_kind {
+                            FileStatusKind::Pending => muted,
+                            FileStatusKind::InProgress => cx.theme().accent,
+                            FileStatusKind::Completed => success,
+                            FileStatusKind::Failed => danger,
+                        };
+
                         div()
-                            .flex_1()
-                            .min_w_0()
-                            .v_flex()
-                            .gap_0p5()
-                            .child(div().text_sm().truncate().child(row.title))
-                            .child(div().text_xs().text_color(muted).truncate().child(row.meta)),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .when(row.is_failed, |this| this.text_color(danger))
-                            .when(!row.is_failed, |this| this.text_color(muted))
-                            .child(row.status),
-                    )
-            }))
-            // 滚动容器要在所有子元素加完之后再包，`Scrollable` 是整体渲染的。
-            .overflow_y_scrollbar()
+                            .id(("file-row", id.value()))
+                            .h_flex()
+                            .items_center()
+                            .gap_3()
+                            .px_3()
+                            .py_1p5()
+                            .rounded_lg()
+                            .cursor_pointer()
+                            .when(row.is_selected, |this| this.bg(accent))
+                            .on_click(move |_, window, cx| on_select(&id, window, cx))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_sm()
+                                    .truncate()
+                                    .child(row.title),
+                            )
+                            .child(
+                                div()
+                                    .w_16()
+                                    .flex_shrink_0()
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .truncate()
+                                    .child(row.duration),
+                            )
+                            .child(
+                                div()
+                                    .w_16()
+                                    .flex_shrink_0()
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .truncate()
+                                    .child(row.size),
+                            )
+                            .child(
+                                div()
+                                    .w_20()
+                                    .flex_shrink_0()
+                                    .text_xs()
+                                    .text_color(status_color)
+                                    .truncate()
+                                    .child(row.status_text),
+                            )
+                    })),
+            )
             .into_any_element()
     }
 }
 
-/// 一行日志。
-#[derive(Debug, Clone)]
-pub struct LogRow {
-    text: String,
-    is_error: bool,
-}
-
-/// 两个 tab 共用的外壳：工具条 / 左侧设置 / 右侧列表 / 底部动作 / 日志。
+/// 两个 tab 共用的外壳：工具条 / 左侧设置 / 右侧列表 / 底部动作。
 ///
 /// 抽出来是为了让切割和转换在结构上必然一致——只有设置表单那一块各自不同。
 #[derive(IntoElement)]
 pub struct QueueShell {
-    toolbar: AnyElement,
     sidebar: AnyElement,
     hint: SharedString,
     footer: AnyElement,
@@ -163,14 +215,11 @@ pub struct QueueShell {
     on_select: SelectCallback,
     on_pick: Option<PickCallback>,
     on_paths: Option<PathsCallback>,
-    log: Vec<LogRow>,
-    on_clear_log: Option<ClearLogCallback>,
 }
 
 impl QueueShell {
-    pub fn new(rows: Vec<FileRow>, on_select: SelectCallback, log: Vec<LogRow>) -> Self {
+    pub fn new(rows: Vec<FileRow>, on_select: SelectCallback) -> Self {
         Self {
-            toolbar: div().into_any_element(),
             sidebar: div().into_any_element(),
             hint: SharedString::default(),
             footer: div().into_any_element(),
@@ -178,14 +227,7 @@ impl QueueShell {
             on_select,
             on_pick: None,
             on_paths: None,
-            log,
-            on_clear_log: None,
         }
-    }
-
-    pub fn toolbar(mut self, toolbar: impl IntoElement) -> Self {
-        self.toolbar = toolbar.into_any_element();
-        self
     }
 
     pub fn sidebar(mut self, sidebar: impl IntoElement) -> Self {
@@ -213,11 +255,6 @@ impl QueueShell {
 
     pub fn footer(mut self, footer: impl IntoElement) -> Self {
         self.footer = footer.into_any_element();
-        self
-    }
-
-    pub fn on_clear_log(mut self, on_clear_log: ClearLogCallback) -> Self {
-        self.on_clear_log = Some(on_clear_log);
         self
     }
 }
@@ -299,16 +336,6 @@ impl RenderOnce for QueueShell {
             .child(
                 div()
                     .h_flex()
-                    .gap_2()
-                    .px_3()
-                    .py_2()
-                    .border_b_1()
-                    .border_color(theme.border)
-                    .child(self.toolbar),
-            )
-            .child(
-                div()
-                    .h_flex()
                     .flex_1()
                     .min_h_0()
                     .items_stretch()
@@ -336,89 +363,6 @@ impl RenderOnce for QueueShell {
                     .border_color(theme.border)
                     .child(self.footer),
             )
-            .child({
-                let mut pane = LogPane::new(self.log);
-                if let Some(on_clear) = self.on_clear_log {
-                    pane = pane.on_clear(on_clear);
-                }
-                pane
-            })
-    }
-}
-
-/// 清理日志的回调。
-pub type ClearLogCallback = Rc<dyn Fn(&mut Window, &mut App)>;
-
-#[derive(IntoElement)]
-pub struct LogPane {
-    rows: Vec<LogRow>,
-    on_clear: Option<ClearLogCallback>,
-}
-impl LogPane {
-    pub fn new(rows: impl IntoIterator<Item = LogRow>) -> Self {
-        Self {
-            rows: rows.into_iter().collect(),
-            on_clear: None,
-        }
-    }
-
-    pub fn on_clear(mut self, on_clear: ClearLogCallback) -> Self {
-        self.on_clear = Some(on_clear);
-        self
-    }
-}
-
-impl RenderOnce for LogPane {
-    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        let muted = cx.theme().muted_foreground;
-        let danger = cx.theme().danger;
-        let border = cx.theme().border;
-
-        let log_content = div()
-            .flex_1()
-            .min_h_0()
-            .px_3()
-            .pb_2()
-            .text_xs()
-            .v_flex()
-            .gap_0p5()
-            .when(self.rows.is_empty(), |this| {
-                this.text_color(muted).child("日志会显示在这里")
-            })
-            .children(self.rows.into_iter().enumerate().map(|(ix, row)| {
-                div()
-                    .id(("log-line", ix))
-                    .when(row.is_error, |this| this.text_color(danger))
-                    .child(row.text)
-            }))
-            .overflow_y_scrollbar();
-
-        let header = div()
-            .h_flex()
-            .items_center()
-            .justify_end()
-            .px_3()
-            .pt_2()
-            .pb_1()
-            .child(
-                Button::new("log-clear")
-                    .small()
-                    .label("清理")
-                    .on_click(move |_, window, cx| {
-                        if let Some(on_clear) = &self.on_clear {
-                            on_clear(window, cx);
-                        }
-                    }),
-            );
-
-        div()
-            .h_96()
-            .w_full()
-            .border_t_1()
-            .border_color(border)
-            .v_flex()
-            .child(header)
-            .child(log_content)
     }
 }
 

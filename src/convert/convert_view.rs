@@ -13,10 +13,10 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::components::{
-    file_rows, log_rows, settings_row, settings_row_desc, settings_title, FileRow, LogRow,
+    file_rows, settings_row, settings_row_desc, settings_title, FileRow,
     PathsCallback, PickCallback, QueueShell, SelectCallback,
 };
-use crate::jobs::{ConvertSettings, FileId, JobStore, LogLevel, Settings};
+use crate::jobs::{ConvertSettings, FileId, JobStore, Settings};
 use crate::media::{AudioFormat, FfmpegEnv, Overwrite, Quality, ResolveError};
 use crate::pick;
 use crate::scan::{self, ScanOutcome};
@@ -211,14 +211,6 @@ impl ConvertView {
     fn clear(&mut self, cx: &mut Context<Self>) {
         self.store.update(cx, |store, cx| {
             store.clear();
-            store.push_log(LogLevel::Info, "已清空列表");
-            cx.notify();
-        });
-    }
-
-    fn clear_log(&mut self, cx: &mut Context<Self>) {
-        self.store.update(cx, |store, cx| {
-            store.clear_log();
             cx.notify();
         });
     }
@@ -227,7 +219,6 @@ impl ConvertView {
 struct Snapshot {
     settings: ConvertSettings,
     rows: Vec<FileRow>,
-    log: Vec<LogRow>,
     hint: String,
     has_files: bool,
     /// 有几个文件的输出路径会正好落在自己身上。ffmpeg 遇到这种直接拒绝
@@ -245,7 +236,6 @@ impl Render for ConvertView {
 
             Snapshot {
                 rows: file_rows(store.files(), store.selected()),
-                log: log_rows(store.log()),
                 has_files: !store.files().is_empty(),
                 writes_onto_itself: store
                     .files()
@@ -279,29 +269,9 @@ impl Render for ConvertView {
             Rc::new(move |paths, window, cx| add(&paths, window, cx))
         };
 
-        let on_clear_log: crate::components::ClearLogCallback = {
-            let clear = cx.listener(|this: &mut Self, _, _, cx| this.clear_log(cx));
-            Rc::new(move |window, cx| clear(&(), window, cx))
-        };
-
-        QueueShell::new(snapshot.rows, on_select, snapshot.log)
+        QueueShell::new(snapshot.rows, on_select)
             .on_pick(on_pick)
             .on_paths(on_paths)
-            .on_clear_log(on_clear_log)
-            .toolbar(
-                div()
-                    .h_flex()
-                    .gap_2()
-                    .w_full()
-                    .child(div().flex_1())
-                    .child(
-                        Button::new("convert-clear")
-                            .small()
-                            .label("清空")
-                            .disabled(!has_files || busy)
-                            .on_click(cx.listener(|this: &mut Self, _, _, cx| this.clear(cx))),
-                    ),
-            )
             .sidebar(self.render_settings(&snapshot.settings, writes_onto_itself, cx))
             .hint(snapshot.hint)
             .footer(
@@ -313,9 +283,15 @@ impl Render for ConvertView {
                     .child(
                         Button::new("convert-start")
                             .primary()
-                            .label(if busy { "转换中…" } else { "开始转换" })
+                            .label(if busy { "转换中…" } else { "开始" })
                             .disabled(!can_start)
                             .on_click(cx.listener(|this: &mut Self, _, _, cx| this.start(cx))),
+                    )
+                    .child(
+                        Button::new("convert-clear")
+                            .label("清空列表")
+                            .disabled(!has_files || busy)
+                            .on_click(cx.listener(|this: &mut Self, _, _, cx| this.clear(cx))),
                     )
                     .child(
                         Button::new("convert-cancel")
