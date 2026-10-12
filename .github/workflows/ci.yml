@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  # 开发期性能优化覆盖（和 Cargo.toml 的 [profile.dev.package] 一致）
+  CARGO_PROFILE_DEV_OPT_LEVEL: 3
+
+jobs:
+  # macOS 构建 + 测试
+  macos:
+    name: macOS (arm64)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.92"
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "macos"
+
+      - name: cargo check
+        run: cargo check --all-targets
+
+      - name: cargo test
+        run: cargo test --lib
+        # 集成测试需要 ffmpeg，CI 里不编 vendor，跳过
+        # 如果要跑集成测试，需要先跑 script/build-ffmpeg.sh（约几十分钟）
+
+      - name: cargo build --release
+        run: cargo build --release
+
+  # Windows 构建检查
+  windows:
+    name: Windows (x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.92"
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "windows"
+
+      - name: cargo check
+        run: cargo check --all-targets
+        # gpui-pre 的 build.rs 需要 Windows 资源编译器，windows-latest 自带 MSVC 工具链应该能过
+
+      - name: cargo test
+        run: cargo test --lib
+
+      - name: cargo build --release
+        run: cargo build --release
+
+  # Linux 构建检查（gpui-kit 支持 Linux）
+  linux:
+    name: Linux (x64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev wayland-protocols
+          # gpui-kit 在 Linux 上需要 Wayland 依赖
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.92"
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "linux"
+
+      - name: cargo check
+        run: cargo check --all-targets
+
+      - name: cargo test
+        run: cargo test --lib
+
+      - name: cargo build --release
+        run: cargo build --release
