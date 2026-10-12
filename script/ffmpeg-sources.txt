@@ -1,0 +1,38 @@
+# build-ffmpeg.sh 的 pin 清单：只认这里写死的版本与 sha256。
+#
+# 为什么自己编：早先随包的那套 martin-riedl 构建是"全家桶"（GPL、带 libx264/x265/bluray
+# 等一堆视频组件），单个二进制 63MB。我们只做音频，自编一个 audio-only 的
+# **LGPL** 精简静态构建，体积能小一大截，许可证面也从 GPL-3.0+ 收窄到 LGPL-2.1+。
+# 那套 GPL 构建连同它的取包脚本已于 2026-10-12 从仓库删除，来历归档在 build.md。
+#
+# 字段（空白分隔，# 起头是注释）：
+#   <名字>  <版本>  <sha256>  <URL>
+#
+# 第一次跑时 sha256 是 PENDING，脚本会算出真实值并打印、然后失败退出；
+# 把值回填到这里再跑一次。校验不过绝不会拿未校验的源码去编译。
+# （别指望脚本自动写回来：让人把值**看一遍**再回填，才是这道校验的意义。）
+#
+# 这些 sha256 是怎么来的，说清楚免得后面有人误以为它证明了什么：
+# 五个上游都**不发布** `.sha256` 文件（ffmpeg.org 只给一个 detached `.asc`，
+# xiph 和 sourceforge 连签名都没有），所以下面这些值是 2026-10-12 从
+# 官方 URL 下回来的 tarball 上算出来的。它能防的是**之后**的镜像投毒、
+# 传输损坏、和"某次手滑改了版本号"，不能反过来证明当天那份就是干净的。
+# 真要证明得验 `.asc`，而那需要一把从独立渠道核对过指纹的 GPG 公钥——
+# 没做，因为这套源码只进本机构建、不进分发链。
+#
+# 依赖为什么是这四个：
+#   libmp3lame  mp3 编码。ffmpeg 没有内置 mp3 编码器，只能靠 LAME（LGPL）。
+#               上游在 sourceforge，但那台镜像反复传到一半掐断（curl 18），
+#               所以下面 pin 的是 Debian pool 里的同一份 orig tarball——快、稳、
+#               且 Debian 对 orig tarball 不做改动。文件名不一样，内容按 sha256 认。
+#   libogg      ogg 容器层。libvorbis 的 configure 要用 `--with-ogg` 找到它（BSD-3）。
+#               libopus 自带 ogg 封装，**不**依赖 libogg，这里编它只是给 libvorbis 用。
+#   libvorbis   ogg 目标的 vorbis 编码（BSD-3）。
+#   libopus     源是 opus 时转 ogg 用 libopus（command.rs 的 encoder_args 里写着）。
+# aac / flac / pcm / alac 的编解码 ffmpeg 自己就有，不需要外部库。
+
+ffmpeg     9.0.2   8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz
+libogg     1.3.5   0eb4b4b9420a0f51db142ba3f9c64b333f826532dc0f48c6410ae51f4799b664 https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.gz
+libvorbis  1.3.7   b33cc4934322bcbf6efcbacf49e3ca01aadbea4114ec9589d1b1e9d20f72954b https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.xz
+opus       1.5.2   65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1 https://downloads.xiph.org/releases/opus/opus-1.5.2.tar.gz
+lame       3.100   ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e http://deb.debian.org/debian/pool/main/l/lame/lame_3.100.orig.tar.gz

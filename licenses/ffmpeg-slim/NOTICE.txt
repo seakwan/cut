@@ -1,0 +1,164 @@
+Cut 随包分发的第三方组件（自编精简 ffmpeg）
+=============================================
+
+Cut 本体（src/ 下的 Rust 代码）以 MIT OR Apache-2.0 授权，全文见仓库根目录的
+LICENSE-MIT 与 LICENSE-APACHE。下面这份声明覆盖**随应用一起分发的 ffmpeg / ffprobe
+二进制**，以及**静态链接进这两个二进制里的那些库**。
+
+早先随包分发的是从 martin-riedl.de 下载的 GPL "全家桶"构建（单个二进制 63 MB，
+GPL-3.0-or-later），已于 2026-10-12 被本目录描述的自编 LGPL 构建取代并从仓库删除；
+它的来历与 sha256 归档在 build.md 的「历史：被换掉的 GPL 预编译构建」。
+
+
+组件清单
+--------
+ffmpeg / ffprobe   9.0.2        本仓库自编（不是下载的）
+libmp3lame (LAME)  3.100        静态链接，mp3 编码
+libogg             1.3.5        静态链接，libvorbis 的容器层
+libvorbis          1.3.7        静态链接，ogg 目标的 vorbis 编码
+libopus (Opus)     1.5.2        静态链接，ogg 目标的 opus 编码
+
+体积：ffmpeg 5.8 MB + ffprobe 5.6 MB = 11.4 MB（arm64，实测 `du -h`）。
+对比被取代的 GPL 构建 63 MB + 63 MB = 126 MB。
+
+
+许可证
+------
+ffmpeg 9.0.2
+  Copyright (c) 2000-2026 the FFmpeg developers
+  GNU Lesser General Public License v2.1 or later（LGPL-2.1+）
+  全文见同目录 LICENSE.txt。
+  判据不是我们的说法，而是二进制自己的输出：`ffmpeg -license` 打印
+  "GNU Lesser General Public License … version 2.1 … or (at your option) any later
+  version"，且 `ffmpeg -buildconf` 里没有 --enable-gpl / --enable-version3 /
+  --enable-nonfree。script/build-ffmpeg.sh 的 build_one() 把这两条都钉成了硬失败：
+  -license 里没有 "Lesser General Public License"，或 -buildconf 里出现了那三个开关
+  中的任何一个，构建就不许通过。
+
+  注意 nonfree 本来就不需要显式关（ffmpeg 默认关闭，要 --enable-nonfree 才会打开）；
+  上面那条 -buildconf 断言是防"有人日后往参数里加东西"，不是在记一个我们传过的 flag。
+
+LAME 3.100
+  GNU Library General Public License Version 2（June 1991），即 LGPL-2.0。
+  全文见 third-party/lame-3.100-COPYING.txt（从解压出来的源码包里原样复制）。
+  依据是源码包自带的两份文件：COPYING 的标题行，以及 README 第 10–11 行
+  "This code is distributed under the GNU LIBRARY GENERAL PUBLIC LICENSE
+  (LGPL, see www.gnu.org), version 2."
+  上游还有一份 LICENSE 文件，说明可以在商业程序里按 LGPL 使用 LAME，条件是：
+  致谢使用了 LAME 并给出其网站链接。据此致谢：本应用使用 LAME 进行 mp3 编码，
+  LAME 项目见 http://www.mp3dev.org/ 。我们未修改 LAME 源码，因此不触发
+  "修改必须回馈上游"那一条。
+
+libogg 1.3.5
+  Copyright (c) 2002, Xiph.org Foundation
+  Xiph 的 BSD 风格许可证（三条款），全文见 third-party/libogg-1.3.5-COPYING.txt。
+
+libvorbis 1.3.7
+  Copyright (c) 2002-2020 Xiph.org Foundation
+  同上，全文见 third-party/libvorbis-1.3.7-COPYING.txt。
+
+Opus 1.5.2
+  Copyright 2001-2023 Xiph.Org, Skype Limited, Octasic, Jean-Marc Valin,
+              Timothy B. Terriberry, CSIRO, Gregory Maxwell, Mark Borgerding,
+              Erik de Castro Lopo, Mozilla, Amazon
+  同上，全文见 third-party/opus-1.5.2-COPYING.txt。
+
+整体上：ffmpeg 是 LGPL-2.1+，LAME 是 LGPL-2.0，三个 Xiph 库是 BSD 风格宽松许可，
+没有任何组件把整体拉到 GPL。两个二进制因此都在 LGPL 条款下分发，本目录同时附上了
+LGPL-2.1（LICENSE.txt）与 LGPL-2.0（third-party/lame-*-COPYING.txt）两份全文。
+
+
+上游项目
+--------
+ffmpeg    https://ffmpeg.org/
+LAME      http://www.mp3dev.org/  ·  https://lame.sourceforge.io/
+libogg    https://www.xiph.org/ogg/
+libvorbis https://www.xiph.org/vorbis/
+Opus      https://www.opus-codec.org/
+
+
+二进制来源与可复现性
+--------------------
+这份二进制是本仓库自己编的，不存在"上游构建服务器"可以指认。它的来历就是三样东西：
+
+  1. 源码 pin：script/ffmpeg-sources.txt
+     写死了五个组件的版本、下载 URL 与 sha256。脚本先校验 sha256 再解压，
+     校验不过直接失败退出，绝不拿未校验的源码去编译。
+  2. 构建脚本：script/build-ffmpeg.sh
+     完整的 configure 参数就在里面，`--dry-run` 会把那一整行原样打印出来。
+  3. 构建证据：build-info-<triple>.txt
+     由脚本自动生成，含 pin 清单、编译器版本（Apple clang 21.0.0）、两个二进制的
+     sha256，以及 `ffmpeg -version` / `-license` / `-buildconf` 的原文输出。
+
+也就是说：在一台装了 Xcode command line tools 与 nasm 的 macOS 上，
+`./script/build-ffmpeg.sh` 能从 pin 的源码重建出功能等价的二进制。
+
+复现的两点注意：
+  - 编译器版本会影响产物的 sha256，所以 build-info 里记了 clang 版本；
+    换编译器重建，sha256 会变，但许可证与组件白名单不变。
+  - configure 参数里含构建机的绝对路径（--prefix / --extra-cflags / --extra-ldflags），
+    所以路径不同的两台机器编出来的二进制不逐字节相同。这是正常的，不影响
+    `-buildconf` 里可核对的实质内容。
+
+
+确切构建配置
+------------
+以 build-info-<triple>.txt 里的 `-buildconf` 原文为准，不在这里抄一份，避免两处对不上。
+要点：
+
+  --disable-everything 之后按白名单逐个打开组件
+  --disable-gpl --disable-version3（两个都显式关掉），并加了 --disable-autodetect
+      （--disable-autodetect 很关键：不然 configure 会自动探测到构建机上 homebrew 装的
+       库，把一堆没打算要的东西链接进来，同时可能污染许可证面）
+  --disable-network（只留 file / pipe 两个协议；这个构建连网络能力都没有）
+  --disable-shared --enable-static（依赖库全部静态链接，发布包里没有 .dylib）
+  --disable-doc --disable-debug --disable-ffplay
+  -mmacosx-version-min=12.0（`otool -l` 可核对 minos 12.0）
+
+白名单见 script/build-ffmpeg.sh 里的 components 数组，覆盖 m4a / mp3 / wav / flac /
+aac / ogg 的解复用与编码，加上 `-f segment` 切片和 `-f image2` 读写封面。
+脚本在 configure 之后、make 之前跑 verify_components()，逐个核对白名单里的名字
+是否真的落进了 ffbuild/config.mak —— 因为 configure 对**未知组件名**是静默忽略而不报错，
+写错名字只会得到一个少了功能的二进制，不会得到一条错误。
+
+
+源码获取途径
+------------
+LGPL 要求你有权获得对应版本的完整源码。本仓库提供的就是"可复现构建"这条路：
+
+  ffmpeg    https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz
+            或 git clone https://git.ffmpeg.org/ffmpeg.git && git checkout n9.0.2
+  LAME      http://deb.debian.org/debian/pool/main/l/lame/lame_3.100.orig.tar.gz
+            （官方 sourceforge 镜像当时反复传一半掐断；Debian 不修改 orig tarball，
+             文件名不同，内容以 script/ffmpeg-sources.txt 里的 sha256 为准）
+  libogg    https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.gz
+  libvorbis https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.xz
+  Opus      https://downloads.xiph.org/releases/opus/opus-1.5.2.tar.gz
+
+以上五条就是 script/ffmpeg-sources.txt 的内容，脚本会自动下载并校验。
+如果你希望我们直接提供打包好的源码档案，联系仓库维护者。
+
+关于"重新链接"的义务（LGPL-2.1 §6）：静态链接的作品，用户必须能够替换掉库并重新链接。
+我们提供的是完整源码 + 精确 configure 参数 + 构建脚本，用户据此可以重建整个二进制
+（等价于 §6(a) 的"提供完整对应源码"）。如果你更愿意拿到中间的目标文件（.o / .a）
+以便只替换某个库后重新链接，联系仓库维护者索取。
+
+关于 sha256 的诚实说明：script/ffmpeg-sources.txt 里的校验值是 2026-10-12 从上述
+官方 URL 下载后本地计算出来的，上游并不发布 .sha256 文件（ffmpeg.org 只给分离签名的
+.asc）。这些值能挡住后续的镜像投毒、传输损坏和版本漂移，但**不能证明**当天下载的那份
+就是干净的。要证明那一步，需要用一把指纹经过带外核对的 GPG 公钥去验签——我们没有做，
+理由是这些源码只进入本机构建，不进入分发链；分发的只有我们自编的二进制，而那份二进制
+的 sha256 记录在 build-info-<triple>.txt 里。
+
+
+为什么 Cut 本体不被 LGPL 传染
+-----------------------------
+Cut **不链接** libavcodec / libavformat / libmp3lame 等任何库，只是用
+`std::process::Command` 把 ffmpeg 当独立子进程调用，通过命令行参数与 stdout 通信。
+这属于"聚合分发"（mere aggregation）：两个程序是各自独立的作品。
+所以 Cut 自己的代码保持 MIT OR Apache-2.0；LGPL 的义务只落在 ffmpeg / ffprobe
+这两个二进制上，即随包附许可证全文、版权声明、确切构建配置、源码获取途径与
+重新链接的手段——本目录已备齐。
+
+注意这条论证对**动态链接 libav\* 的 Rust 绑定（如 ffmpeg-sys）不成立**。
+本项目从一开始就选择调用 CLI 子进程，一部分原因正是许可证边界干净。

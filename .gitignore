@@ -1,0 +1,6 @@
+/target
+/vendor
+/dist
+# script/build-ffmpeg.sh 的下载与编译中间树（src/ + prefix-*/，实测 232M），
+# 不是本项目的构建产物；能从 pin 死的 ffmpeg-sources.txt 重新生出来。
+/build
