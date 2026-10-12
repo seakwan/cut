@@ -7,15 +7,14 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::radio::RadioGroup;
-use gpui_kit::component::switch::Switch;
-use gpui_kit::component::{ActiveTheme, Disableable, Sizable, StyledExt as _};
+use gpui_kit::component::select::{Select, SelectEvent, SelectState, SearchableVec};
+use gpui_kit::component::{ActiveTheme, Disableable, IndexPath, Sizable, StyledExt as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::components::{
-    file_rows, log_rows, settings_block, settings_row, settings_row_desc, settings_title, FileRow,
-    LogRow, PathsCallback, PickCallback, QueueShell, SelectCallback,
+    file_rows, log_rows, settings_row, settings_row_desc, settings_title, FileRow, LogRow,
+    PathsCallback, PickCallback, QueueShell, SelectCallback,
 };
 use crate::jobs::{ConvertSettings, FileId, JobStore, LogLevel, Settings};
 use crate::media::{AudioFormat, FfmpegEnv, Overwrite, Quality, ResolveError};
@@ -28,15 +27,122 @@ const CONCURRENCY_OPTIONS: [u8; 4] = [1, 2, 3, 4];
 
 pub struct ConvertView {
     store: Entity<JobStore>,
+    target_select: Entity<SelectState<SearchableVec<String>>>,
+    quality_select: Entity<SelectState<SearchableVec<String>>>,
+    concurrency_select: Entity<SelectState<SearchableVec<String>>>,
+    overwrite_select: Entity<SelectState<SearchableVec<String>>>,
     /// 视图必须活得比它久：`Scheduler` 一掉，正在跑的那批会被 `RunHandle::drop` 杀掉。
     scheduler: Scheduler,
+    _subscriptions: Vec<Subscription>,
 }
 
 impl ConvertView {
-    pub fn new(ffmpeg: Result<FfmpegEnv, ResolveError>, cx: &mut Context<Self>) -> Self {
-        let store = cx.new(|_| JobStore::new(Settings::Convert(ConvertSettings::default())));
+    pub fn new(
+        window: &mut Window,
+        ffmpeg: Result<FfmpegEnv, ResolveError>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let defaults = ConvertSettings::default();
+        let store = cx.new(|_| JobStore::new(Settings::Convert(defaults.clone())));
         let scheduler = Scheduler::new(store.clone(), ffmpeg);
-        Self { store, scheduler }
+
+        let target_items = SearchableVec::new(
+            AudioFormat::ALL
+                .iter()
+                .map(|f| f.label().to_string())
+                .collect::<Vec<_>>(),
+        );
+        let target_selected = Some(IndexPath::default().row(defaults.target.index()));
+        let target_select = cx.new(|cx| SelectState::new(target_items, target_selected, window, cx));
+        let target_changed = cx.subscribe_in(&target_select, window, |this, _, event, _, cx| {
+            if let SelectEvent::Confirm(Some(label)) = event {
+                let target = AudioFormat::ALL
+                    .iter()
+                    .find(|f| f.label() == label.as_str())
+                    .copied()
+                    .unwrap_or(AudioFormat::M4a);
+                this.update_settings(cx, |settings| settings.target = target);
+            }
+        });
+
+        let quality_items = SearchableVec::new(
+            Quality::OPTIONS
+                .iter()
+                .map(|q| q.label().to_string())
+                .collect::<Vec<_>>(),
+        );
+        let quality_selected = Some(IndexPath::default().row(defaults.quality.index()));
+        let quality_select =
+            cx.new(|cx| SelectState::new(quality_items, quality_selected, window, cx));
+        let quality_changed = cx.subscribe_in(&quality_select, window, |this, _, event, _, cx| {
+            if let SelectEvent::Confirm(Some(label)) = event {
+                let quality = Quality::OPTIONS
+                    .iter()
+                    .find(|q| q.label() == label.as_str())
+                    .copied()
+                    .unwrap_or_default();
+                this.update_settings(cx, |settings| settings.quality = quality);
+            }
+        });
+
+        let concurrency_items = SearchableVec::new(
+            CONCURRENCY_OPTIONS
+                .iter()
+                .map(|n| n.to_string())
+                .collect::<Vec<_>>(),
+        );
+        let concurrency_selected = CONCURRENCY_OPTIONS
+            .iter()
+            .position(|n| *n == defaults.concurrency)
+            .map(|ix| IndexPath::default().row(ix));
+        let concurrency_select = cx.new(|cx| {
+            SelectState::new(concurrency_items, concurrency_selected, window, cx)
+        });
+        let concurrency_changed =
+            cx.subscribe_in(&concurrency_select, window, |this, _, event, _, cx| {
+                if let SelectEvent::Confirm(Some(value)) = event {
+                    if let Ok(n) = value.parse::<u8>() {
+                        this.update_settings(cx, |settings| settings.concurrency = n);
+                    }
+                }
+            });
+
+        let overwrite_items = SearchableVec::new(
+            Overwrite::OPTIONS
+                .iter()
+                .map(|o| o.label().to_string())
+                .collect::<Vec<_>>(),
+        );
+        let overwrite_selected = Some(IndexPath::default().row(defaults.overwrite.index()));
+        let overwrite_select = cx.new(|cx| {
+            SelectState::new(overwrite_items, overwrite_selected, window, cx)
+        });
+        let overwrite_changed =
+            cx.subscribe_in(&overwrite_select, window, |this, _, event, _, cx| {
+                if let SelectEvent::Confirm(Some(label)) = event {
+                    let overwrite = Overwrite::OPTIONS
+                        .iter()
+                        .find(|o| o.label() == label.as_str())
+                        .copied()
+                        .unwrap_or_default();
+                    this.update_settings(cx, |settings| settings.overwrite = overwrite);
+                }
+            });
+
+        Self {
+            store,
+            target_select,
+            quality_select,
+            concurrency_select,
+            overwrite_select,
+            scheduler,
+            _subscriptions: vec![
+                target_changed,
+                quality_changed,
+                concurrency_changed,
+                overwrite_changed,
+            ],
+        }
     }
 
     pub fn store(&self) -> Entity<JobStore> {
@@ -249,45 +355,26 @@ impl ConvertView {
             .v_flex()
             .gap_2()
             .child(settings_title(cx, "转换选项"))
-            .child(settings_block(
+            .child(settings_row(
                 cx,
                 "目标格式",
-                None,
-                RadioGroup::vertical("convert-target")
-                    .children(AudioFormat::ALL.map(|format| format.label()))
-                    .selected_index(Some(settings.target.index()))
-                    .on_change(cx.listener(|this: &mut Self, index: &usize, _, cx| {
-                        let target = AudioFormat::from_index(*index);
-                        this.update_settings(cx, |settings| settings.target = target)
-                    })),
+                Select::new(&self.target_select)
+                    .small()
+                    .placeholder("选择…"),
             ))
-            .child(settings_block(
+            .child(settings_row(
                 cx,
                 "质量",
-                Some("无损格式（WAV、FLAC）会忽略质量档"),
-                RadioGroup::new("convert-quality")
-                    .children(Quality::OPTIONS.map(|quality| quality.label()))
-                    .selected_index(Some(settings.quality.index()))
-                    .on_change(cx.listener(|this: &mut Self, index: &usize, _, cx| {
-                        let quality = Quality::from_index(*index);
-                        this.update_settings(cx, |settings| settings.quality = quality)
-                    })),
+                Select::new(&self.quality_select)
+                    .small()
+                    .placeholder("选择…"),
             ))
-            .child(settings_row_desc(
+            .child(settings_row(
                 cx,
                 "同时处理",
-                "一次跑几个文件；已在跑的那批不受影响，改动对下一批生效",
-                RadioGroup::new("convert-concurrency")
-                    .children(CONCURRENCY_OPTIONS.map(|count| count.to_string()))
-                    .selected_index(
-                        CONCURRENCY_OPTIONS
-                            .iter()
-                            .position(|count| *count == settings.concurrency),
-                    )
-                    .on_change(cx.listener(|this: &mut Self, index: &usize, _, cx| {
-                        let concurrency = CONCURRENCY_OPTIONS.get(*index).copied().unwrap_or(2);
-                        this.update_settings(cx, |settings| settings.concurrency = concurrency)
-                    })),
+                Select::new(&self.concurrency_select)
+                    .small()
+                    .placeholder("选择…"),
             ))
             .child(settings_row_desc(
                 cx,
@@ -313,24 +400,9 @@ impl ConvertView {
             .child(settings_row(
                 cx,
                 "同名文件",
-                RadioGroup::new("convert-overwrite")
-                    .children(Overwrite::OPTIONS.map(|item| item.label()))
-                    .selected_index(Some(settings.overwrite.index()))
-                    .on_change(cx.listener(|this: &mut Self, index: &usize, _, cx| {
-                        let overwrite = Overwrite::from_index(*index);
-                        this.update_settings(cx, |settings| settings.overwrite = overwrite)
-                    })),
-            ))
-            .child(settings_row_desc(
-                cx,
-                "标签与封面",
-                "保留到输出文件",
-                Switch::new("convert-keep-tags")
-                    .checked(settings.keep_tags_and_cover)
-                    .on_change(cx.listener(|this: &mut Self, keep: &bool, _, cx| {
-                        let keep = *keep;
-                        this.update_settings(cx, |settings| settings.keep_tags_and_cover = keep)
-                    })),
+                Select::new(&self.overwrite_select)
+                    .small()
+                    .placeholder("选择…"),
             ))
     }
 }

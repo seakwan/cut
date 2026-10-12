@@ -30,7 +30,7 @@ impl AppView {
             active_tab: 0,
             ffmpeg,
             split: cx.new(|cx| SplitView::new(window, split_ffmpeg, cx)),
-            convert: cx.new(|cx| ConvertView::new(convert_ffmpeg, cx)),
+            convert: cx.new(|cx| ConvertView::new(window, convert_ffmpeg, cx)),
         }
     }
 }

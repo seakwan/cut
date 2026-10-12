@@ -116,10 +116,10 @@ pub struct SplitSettings {
 impl Default for SplitSettings {
     fn default() -> Self {
         Self {
-            mode: SplitMode::ByDuration(300.0),
+            mode: SplitMode::ByCount(2),
             exact: false,
             output_dir: None,
-            overwrite: Overwrite::Skip,
+            overwrite: Overwrite::Overwrite,
             name_template: "{name}_part{index}".to_string(),
             keep_tags_and_cover: true,
             concurrency: 2,

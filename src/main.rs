@@ -14,15 +14,18 @@ fn main() -> ExitCode {
         return print_ffmpeg_env();
     }
 
-    application().with_assets(assets::Assets).run(|cx| {
-        // 必须在创建任何组件视图之前初始化，`open_window` 会自己套上 `Root`。
-        init(cx);
+    application()
+        .with_assets(assets::Assets)
+        .with_quit_mode(QuitMode::LastWindowClosed)
+        .run(|cx| {
+            // 必须在创建任何组件视图之前初始化，`open_window` 会自己套上 `Root`。
+            init(cx);
 
-        open_window(WindowOptions::default(), cx, |window, cx| {
-            cx.new(|cx| cut::app::AppView::new(window, cx))
-        })
-        .expect("打不开窗口");
-    });
+            let _ = open_window(WindowOptions::default(), cx, |window, cx| {
+                cx.new(|cx| cut::app::AppView::new(window, cx))
+            })
+            .expect("打不开窗口");
+        });
 
     ExitCode::SUCCESS
 }

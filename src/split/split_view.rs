@@ -12,9 +12,9 @@ use std::rc::Rc;
 
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::radio::RadioGroup;
+use gpui_kit::component::select::{Select, SelectEvent, SelectState, SearchableVec};
 use gpui_kit::component::switch::Switch;
-use gpui_kit::component::{ActiveTheme, Disableable, Sizable, StyledExt as _};
+use gpui_kit::component::{ActiveTheme, Disableable, IndexPath, Sizable, StyledExt as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
@@ -38,16 +38,16 @@ const DIMENSION_DISPLAY_ORDER: [usize; 3] = [2, 1, 0];
 /// 每个维度的数值行标签（按维度下标）。
 const VALUE_LABELS: [&str; 3] = ["切割份数", "每段时长", "分片大小"];
 
-/// 「同时处理」的可选档位。上限和 `scheduler::MAX_CONCURRENCY` 保持一致——
-/// 再高只是把磁盘和 CPU 打满，不会更快。
 const CONCURRENCY_OPTIONS: [u8; 4] = [1, 2, 3, 4];
 
 pub struct SplitView {
     store: Entity<JobStore>,
     /// 切割维度的数值（份数 / 秒 / MB）。维度本身在 store 里，这里只放编辑中的文本载体。
     value: Entity<InputState>,
-    template: Entity<InputState>,
     value_ok: bool,
+    template: Entity<InputState>,
+    concurrency_select: Entity<SelectState<SearchableVec<String>>>,
+    overwrite_select: Entity<SelectState<SearchableVec<String>>>,
     /// 探测排队、ffmpeg 调度、进度回传、取消，全在这里面。
     /// 视图必须活得比它久：`Scheduler` 一掉，正在跑的那批会被 `RunHandle::drop` 杀掉。
     scheduler: Scheduler,
@@ -69,11 +69,6 @@ impl SplitView {
                 .default_value(DimensionValue::render(defaults.mode.dimension_value()))
                 .placeholder("数值")
         });
-        let template = cx.new(|cx| {
-            InputState::new(window, cx)
-                .default_value(defaults.name_template.clone())
-                .placeholder("{name}_part{index}")
-        });
 
         let value_changed = cx.subscribe_in(&value, window, |this, state, event, _, cx| {
             if matches!(event, InputEvent::Change) {
@@ -81,27 +76,80 @@ impl SplitView {
                 this.apply_value(&text, cx);
             }
         });
+
+        let template = cx.new(|cx| {
+            InputState::new(window, cx)
+                .default_value(&defaults.name_template)
+                .placeholder("文件名模板")
+        });
+
         let template_changed = cx.subscribe_in(&template, window, |this, state, event, _, cx| {
             if matches!(event, InputEvent::Change) {
-                let text = state.read(cx).value().trim().to_string();
-                if !text.is_empty() {
-                    this.store.update(cx, |store, cx| {
-                        if let Some(settings) = store.settings_mut().as_split_mut() {
-                            settings.name_template = text;
-                        }
-                        cx.notify();
-                    });
-                }
+                let text = state.read(cx).value().to_string();
+                this.update_settings(cx, |settings| settings.name_template = text);
             }
         });
+
+        let concurrency_items = SearchableVec::new(
+            CONCURRENCY_OPTIONS
+                .iter()
+                .map(|n| n.to_string())
+                .collect::<Vec<_>>(),
+        );
+        let concurrency_selected = CONCURRENCY_OPTIONS
+            .iter()
+            .position(|n| *n == defaults.concurrency)
+            .map(|ix| IndexPath::default().row(ix));
+        let concurrency_select = cx.new(|cx| {
+            SelectState::new(concurrency_items, concurrency_selected, window, cx)
+        });
+
+        let concurrency_changed =
+            cx.subscribe_in(&concurrency_select, window, |this, _, event, _, cx| {
+                if let SelectEvent::Confirm(Some(value)) = event {
+                    if let Ok(n) = value.parse::<u8>() {
+                        this.update_settings(cx, |settings| settings.concurrency = n);
+                    }
+                }
+            });
+
+        let overwrite_items = SearchableVec::new(
+            Overwrite::OPTIONS
+                .iter()
+                .map(|o| o.label().to_string())
+                .collect::<Vec<_>>(),
+        );
+        let overwrite_selected = Some(IndexPath::default().row(defaults.overwrite.index()));
+        let overwrite_select = cx.new(|cx| {
+            SelectState::new(overwrite_items, overwrite_selected, window, cx)
+        });
+
+        let overwrite_changed =
+            cx.subscribe_in(&overwrite_select, window, |this, _, event, _, cx| {
+                if let SelectEvent::Confirm(Some(label)) = event {
+                    let overwrite = Overwrite::OPTIONS
+                        .iter()
+                        .find(|o| o.label() == label.as_str())
+                        .copied()
+                        .unwrap_or_default();
+                    this.update_settings(cx, |settings| settings.overwrite = overwrite);
+                }
+            });
 
         Self {
             store,
             value,
-            template,
             value_ok: true,
+            template,
+            concurrency_select,
+            overwrite_select,
             scheduler,
-            _subscriptions: vec![value_changed, template_changed],
+            _subscriptions: vec![
+                value_changed,
+                template_changed,
+                concurrency_changed,
+                overwrite_changed,
+            ],
         }
     }
 
@@ -410,10 +458,9 @@ impl SplitView {
                         )
                     }),
             )
-            .child(settings_row_desc(
+            .child(settings_row(
                 cx,
                 "精确模式",
-                "关闭时无损直拷，快但切点落在帧边界；打开后重新编码，切点样本级准确",
                 Switch::new("split-exact")
                     .checked(settings.exact)
                     .on_change(cx.listener(|this: &mut Self, exact: &bool, _, cx| {
@@ -421,21 +468,17 @@ impl SplitView {
                         this.update_settings(cx, |settings| settings.exact = exact)
                     })),
             ))
-            .child(settings_row_desc(
+            .child(settings_row(
                 cx,
                 "同时处理",
-                "一次跑几个文件；已在跑的那批不受影响，改动对下一批生效",
-                RadioGroup::new("split-concurrency")
-                    .children(CONCURRENCY_OPTIONS.map(|count| count.to_string()))
-                    .selected_index(
-                        CONCURRENCY_OPTIONS
-                            .iter()
-                            .position(|count| *count == settings.concurrency),
-                    )
-                    .on_change(cx.listener(|this: &mut Self, index: &usize, _, cx| {
-                        let concurrency = CONCURRENCY_OPTIONS.get(*index).copied().unwrap_or(2);
-                        this.update_settings(cx, |settings| settings.concurrency = concurrency)
-                    })),
+                Select::new(&self.concurrency_select)
+                    .small()
+                    .placeholder("选择…"),
+            ))
+            .child(settings_row(
+                cx,
+                "文件名模板",
+                Input::new(&self.template),
             ))
             .child(settings_row_desc(
                 cx,
@@ -449,37 +492,9 @@ impl SplitView {
             .child(settings_row(
                 cx,
                 "同名文件",
-                RadioGroup::new("split-overwrite")
-                    .children(Overwrite::OPTIONS.map(|item| item.label()))
-                    .selected_index(Some(settings.overwrite.index()))
-                    .on_change(cx.listener(|this: &mut Self, index: &usize, _, cx| {
-                        let overwrite = Overwrite::from_index(*index);
-                        this.update_settings(cx, |settings| settings.overwrite = overwrite)
-                    })),
-            ))
-            .child(
-                div()
-                    .v_flex()
-                    .gap_1()
-                    .child(settings_row(cx, "文件名模板", Input::new(&self.template)))
-                    .child(
-                        div()
-                            .px_3()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("{name} 是原文件名，{index} 从 1 开始"),
-                    ),
-            )
-            .child(settings_row_desc(
-                cx,
-                "标签与封面",
-                "保留到输出文件",
-                Switch::new("split-keep-tags")
-                    .checked(settings.keep_tags_and_cover)
-                    .on_change(cx.listener(|this: &mut Self, keep: &bool, _, cx| {
-                        let keep = *keep;
-                        this.update_settings(cx, |settings| settings.keep_tags_and_cover = keep)
-                    })),
+                Select::new(&self.overwrite_select)
+                    .small()
+                    .placeholder("选择…"),
             ))
     }
 }

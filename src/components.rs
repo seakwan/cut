@@ -412,7 +412,7 @@ impl RenderOnce for LogPane {
             );
 
         div()
-            .h_48()
+            .h_96()
             .w_full()
             .border_t_1()
             .border_color(border)
