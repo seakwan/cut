@@ -283,40 +283,16 @@ cargo test
 wrapped_avframe`，跟白名单里少写一行看起来毫无关系。音频源（`sine=`）不走这条路，
 所以只有封面相关的测试会红。
 
-## Windows（未做，已知前置）
+## Windows（部分完成，需真机验证）
 
-用户已决定"先只做 macOS"，但代码要保持可移植。下面是**在 macOS 上就能核实**的部分，
-以及核实不了、必须到真机上才能定的部分。别把这一节当成"Windows 已经能跑"。
+代码层面已做跨平台适配，打包脚本已写好，但**没在 Windows 上真跑过**。下面是已完成的部分，
+以及仍需到真机上验证的部分。
 
 框架本身是支持的：`gpui-kit` 的平台层是 `gpui-pre-platform`，它带
 `[target.'cfg(target_os = "windows")']` 的依赖分支（`gpui` 开 `windows-manifest`，
 外加 `gpui_windows` = `gpui-pre-windows`）。所以不是我们选的框架只能上 mac。
 
-### 在 macOS 上跨平台检查：只能查一半
-
-```bash
-cargo check --target x86_64-pc-windows-msvc          # 会在 gpui-pre 上炸
-```
-
-110 个 crate 都过了，然后 `gpui-pre v0.3.8` 的 `build.rs` 里那个
-`embed_resource()`（`embed_resource::compile(rc, …).manifest_required().unwrap()`，
-`windows-manifest` feature 才走）panic：`NotAttempted("llvm-rc")`。它要编译
-`resources/windows/gpui.rc`，需要 Windows 资源编译器；本机没有 LLVM/Windows SDK
-就过不去。这不是我们代码的问题，装 LLVM 或直接在 Windows 上构建才能解开。
-
-绕开它的办法：拿一个一次性 crate，只 `#[path]` 引 gpui-free 的那层，再跨平台 check。
-
-```rust
-#[path = "/Users/me/Project/Code/cut/src/media/mod.rs"]
-mod media;
-```
-
-`src/media/` 不依赖 gpui，所以 `cargo check --target x86_64-pc-windows-msvc` 能干净通过。
-**注意别贪心**：引 `src/split/mod.rs` 会把 `split_view.rs` 拖进来（要 gpui_kit），
-引 `src/jobs.rs` 会要 `crate::scan`——第一次尝试就是这么吃下 13 个报错的。
-这招只能证明"没有 gpui 的那层可移植"，证明不了整个应用能编。
-
-### 已经做掉的一条：子进程不要弹黑框
+### 已做：子进程不要弹黑框
 
 Windows 上 GUI 程序 spawn 控制台程序时，系统会**给每个子进程新建一个控制台窗口**，
 于是每探测一个文件、每转一个文件都闪一下黑框。`src/media/ffmpeg.rs` 里的
@@ -325,14 +301,25 @@ Windows 上 GUI 程序 spawn 控制台程序时，系统会**给每个子进程�
 `src/media/probe.rs`（ffprobe）和 `src/runner.rs`（ffmpeg）。`cfg(windows)` 那一支
 已按上面的办法验证过能编。
 
-### 待定：`windows_subsystem` 和 `--ffmpeg-env` 打架
+### 已做：`windows_subsystem` 条件编译
 
-`#![windows_subsystem = "windows"]` 不加，exe 就是个控制台程序，窗口后面挂个黑框；
-加了，`--ffmpeg-env` 这个诊断命令的 stdout 就没地方打（GUI 子系统没有控制台）。
-这个取舍得在真 Windows 机上试过才能定——可能的解法是诊断输出改走日志文件或
-`AttachConsole`，但没验证之前不要凭想象写进代码。
+`src/main.rs` 里加了条件编译属性：
 
-### 单测里硬写的 POSIX 路径
+```rust
+#![cfg_attr(
+    all(windows, not(debug_assertions)),
+    windows_subsystem = "windows"
+)]
+```
+
+- **debug 构建**：不加 `windows_subsystem`，exe 是控制台程序，`--ffmpeg-env` 诊断输出
+  能打到 stdout，打包自检脚本靠它验证 ffmpeg 解析结果。
+- **release 构建**：加 `windows_subsystem = "windows"`，exe 是 GUI 程序，不带黑框。
+
+这个取舍得在真 Windows 机上验证——如果 release 包里也需要 `--ffmpeg-env`（比如用户报障时），
+就得改走日志文件或 `AttachConsole`，目前没做。
+
+### 已做：单测里硬写的 POSIX 路径
 
 `src/runner.rs` 的单测用的是 `/in/song.m4a` 这类字面量，而生产代码是用
 **`PathBuf::join`** 拼切片输出模板的（`dir.join(format!("{pattern}.{ext}"))`），
@@ -340,23 +327,61 @@ Windows 上 GUI 程序 spawn 控制台程序时，系统会**给每个子进程�
 跟写死正斜杠的字面量对不上。
 
 这类断言里只有"拿字符串直接比"的那种会红——比 `Path` 的没事，`Path` 的相等是按
-组件比的，Windows 上两种分隔符解析出的组件一样。踩过的一处已改掉
-（`copy_split_of_a_normal_container_uses_one_segment_pass`），改法是**期望值也用
-join 拼**，而不是把断言放松：
+组件比的，Windows 上两种分隔符解析出的组件一样。已修过的断言用 **`Path::join` 拼期望值**，
+而不是把断言放松：
 
 ```rust
 let expected = Path::new("/in").join("song_part%d.m4a");
 assert_eq!(segment_pattern(&plan), expected.to_str().unwrap());
 ```
 
-以后再写路径断言照这个来。注意这只是读码推断 + 在 macOS 上验证不退化，
-**没在 Windows 上真跑过**。
+以后再写路径断言照这个来。macOS 上 `cargo test` 全绿，证明不退化；**没在 Windows 上真跑过**。
 
-### 其他没查的
+### 已做：打包脚本
 
-打包布局（Windows 没有 `Contents/Resources/bin`，靠 `exe.parent()` 那个候选能覆盖，
-但许可证文件要另外想放哪）、路径长度上限（MAX_PATH）、`rfd` 文件对话框在 Windows 上的
-行为。都要到真机上才知道。
+`script/bundle-windows.ps1` 组装 `dist/Cut-windows/`：
+
+```
+Cut-windows/Cut.exe
+Cut-windows/{ffmpeg,ffprobe}.exe
+Cut-windows/licenses/ffmpeg-slim/{NOTICE,LICENSE}.txt
+```
+
+装进去的是 `vendor/ffmpeg-slim/<arch>-windows/`（自编 LGPL），缺了脚本直接失败。
+`src/media/ffmpeg.rs` 的 `exe.parent()` 候选覆盖这个布局——release 构建里 vendor 候选
+不存在（`debug_assertions` 是关的），所以 exe 同目录的 ffmpeg 是唯一来源。
+
+用法：
+
+```powershell
+.\script\bundle-windows.ps1                                    # 构建 + 打包 + 自检
+.\script\bundle-windows.ps1 -SkipBuild                         # 复用已有的 target/release/cut.exe
+.\script\bundle-windows.ps1 -NoLaunch                          # 跳过启动自检
+.\script\bundle-windows.ps1 -Target x86_64-pc-windows-gnu      # 换工具链
+```
+
+自检有两道：包内 ffprobe 能不能跑、`--ffmpeg-env` 是否报告「可执行文件同目录」。
+
+### 仍需真机验证
+
+以下事项**没在 Windows 上真跑过**，必须到真机上才能定：
+
+1. **整个应用能不能编起来**：`cargo check --target x86_64-pc-windows-msvc` 在 macOS 上
+   会在 `gpui-pre` 的 `build.rs` 里炸（要 Windows 资源编译器 `llvm-rc`，本机没有）。
+   这不是我们代码的问题，装 LLVM 或直接在 Windows 上构建才能解开。
+2. **`script/build-ffmpeg.sh` 在 Windows 上怎么跑**：这个脚本是 bash，依赖 Unix 工具链。
+   要么装 Git Bash / MSYS2，要么改成 PowerShell，要么用交叉编译从 macOS 编 Windows 版。
+   目前没做。
+3. **`rfd` 文件对话框在 Windows 上的行为**：`src/pick.rs` 用的是 `rfd::AsyncFileDialog`，
+   跨平台库，理论上没问题，但没真机验证。
+4. **路径长度上限（MAX_PATH）**：Windows 默认 260 字符上限，长路径会炸。生产代码里没做
+   特殊处理，靠 `\\?\` 前缀或 Windows 10 1607+ 的长路径支持。没验证过。
+5. **SmartScreen**：未签名的 exe 会被 SmartScreen 拦，用户要点「仍要运行」。要彻底免
+   这一步需要代码签名证书（EV 证书才能立即通过，普通证书需要积累 reputation）。
+   目前没做代码签名。
+6. **`--ffmpeg-env` 在 release 包里是否还需要**：release 构建加了 `windows_subsystem = "windows"`
+   后，stdout 没地方打。如果用户报障时需要这个诊断，就得改走日志文件或 `AttachConsole`。
+   目前没做。
 
 ## 历史：被换掉的 GPL 预编译构建
 

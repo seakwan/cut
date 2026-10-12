@@ -1,3 +1,12 @@
+// Windows 上 GUI 程序不带控制台时，exe 不该带黑框；但 debug 构建要保留控制台给
+// `--ffmpeg-env` 诊断输出用。`cfg_attr` 让 release 包进 GUI 子系统、debug 留在控制台。
+// 这个取舍得在真 Windows 机上验证——如果 `--ffmpeg-env` 在 release 包里也需要，
+// 就得改走日志文件或 `AttachConsole`，见 build.md 的 Windows 章节。
+#![cfg_attr(
+    all(windows, not(debug_assertions)),
+    windows_subsystem = "windows"
+)]
+
 use std::process::ExitCode;
 
 use gpui_kit::*;
