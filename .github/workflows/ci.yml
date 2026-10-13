@@ -121,3 +121,16 @@ jobs:
         with:
           name: Cut-Windows
           path: dist/Cut-windows
+
+      # bundle 步骤失败时 dist/ 里的诊断文件还没传到 artifact。单独再上传一次，always-run
+      # 这样 --ffmpeg-env 跑出来的 handle 真值 / WriteFile 结果能拿到。
+      - name: Upload ffmpeg-env diagnostic (Windows)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cut-Windows-diag
+          path: |
+            dist/ffmpeg-env.log
+            dist/ffmpeg-env-debug.log
+            dist/ffmpeg-env-out.log
+          if-no-files-found: ignore
