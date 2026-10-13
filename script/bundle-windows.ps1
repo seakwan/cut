@@ -125,19 +125,13 @@ New-Item -ItemType Directory -Force -Path $bundle | Out-Null
 Copy-Item $exe (Join-Path $bundle "Cut.exe")
 Copy-Item (Join-Path $bin_dir "ffmpeg.exe") $bundle
 Copy-Item (Join-Path $bin_dir "ffprobe.exe") $bundle
-Copy-Item -Recurse $licenses_dir (Join-Path $bundle "licenses")
-
-Write-Host "    licenses_dir 内容："
-Get-ChildItem -Force $licenses_dir | ForEach-Object { Write-Host "      $($_.FullName)" }
-Write-Host "    bundle\licenses 内容："
-Get-ChildItem -Force (Join-Path $bundle "licenses") | ForEach-Object { Write-Host "      $($_.FullName)" }
-$expected = Join-Path $bundle "licenses\ffmpeg-slim"
-if (Test-Path $expected) {
-    Write-Host "    $expected 内容："
-    Get-ChildItem -Force $expected | ForEach-Object { Write-Host "      $($_.FullName)" }
-} else {
-    Write-Host "    $expected 不存在！"
-}
+# PowerShell 的 Copy-Item -Recurse 在 Windows 上：源是目录、目标是已存在的目录时，
+# 会把源的内容直接摊进目标，不保留源的目录名。ls 把 ffmpeg-slim 里的文件直接复制到
+# bundle\licenses\ 下，于是 bundle\licenses\ffmpeg-slim\ 就不存在了——下面的自检、
+# AboutView 解析、Info.plist 都指着这个路径。先建好子目录再 cp 内容。
+$bundle_licenses_slim = Join-Path $bundle "licenses\ffmpeg-slim"
+New-Item -ItemType Directory -Force -Path $bundle_licenses_slim | Out-Null
+Copy-Item -Recurse -Force (Join-Path $licenses_dir "*") $bundle_licenses_slim
 
 # ---- 自检 ----
 
