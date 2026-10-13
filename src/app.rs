@@ -6,6 +6,7 @@ use gpui_kit::component::tab::{Tab, TabBar};
 use gpui_kit::component::{ActiveTheme, StyledExt as _};
 use gpui_kit::*;
 
+use crate::about::AboutView;
 use crate::convert::ConvertView;
 use crate::media::{FfmpegEnv, ResolveError};
 use crate::split::SplitView;
@@ -15,6 +16,7 @@ pub struct AppView {
     ffmpeg: Result<FfmpegEnv, ResolveError>,
     split: Entity<SplitView>,
     convert: Entity<ConvertView>,
+    about: Entity<AboutView>,
 }
 
 impl AppView {
@@ -25,12 +27,14 @@ impl AppView {
         let ffmpeg = FfmpegEnv::resolve();
         let split_ffmpeg = ffmpeg.clone();
         let convert_ffmpeg = ffmpeg.clone();
+        let about_ffmpeg = ffmpeg.clone();
 
         Self {
             active_tab: 0,
             ffmpeg,
             split: cx.new(|cx| SplitView::new(window, split_ffmpeg, cx)),
             convert: cx.new(|cx| ConvertView::new(window, convert_ffmpeg, cx)),
+            about: cx.new(|_| AboutView::new(about_ffmpeg)),
         }
     }
 }
@@ -54,13 +58,14 @@ impl Render for AppView {
                             cx.notify();
                         }))
                         .child(Tab::new().label("切割"))
-                        .child(Tab::new().label("转换")),
+                        .child(Tab::new().label("转换"))
+                        .child(Tab::new().label("关于")),
                 ),
             )
-            .child(div().flex_1().min_h_0().child(if self.active_tab == 0 {
-                self.split.clone().into_any_element()
-            } else {
-                self.convert.clone().into_any_element()
+            .child(div().flex_1().min_h_0().child(match self.active_tab {
+                0 => self.split.clone().into_any_element(),
+                1 => self.convert.clone().into_any_element(),
+                _ => self.about.clone().into_any_element(),
             }))
     }
 }

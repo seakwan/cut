@@ -13,6 +13,7 @@
 //! `media` / `runner` / `jobs` / `scan` / `split::plan` / `media::command` 都不认识 gpui_kit，
 //! 因此可以脱离窗口做单元测试。
 
+pub mod about;
 pub mod app;
 pub mod components;
 pub mod convert;
