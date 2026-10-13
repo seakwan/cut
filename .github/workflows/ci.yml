@@ -101,9 +101,11 @@ jobs:
         run: script/build-ffmpeg-windows.sh --native
 
       - name: cargo check
+        shell: pwsh
         run: cargo check --all-targets
 
       - name: cargo test
+        shell: pwsh
         run: cargo test --lib
 
       - name: cargo build --release
