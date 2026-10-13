@@ -367,17 +367,17 @@ build_one() {
   build_ffmpeg "$prefix" "$out"
 
   if [ "$dry_run" -eq 0 ]; then
-    [ -f "$out/ffmpeg.exe" ] || die "x86_64-windows 的 ffmpeg.exe 没编出来"
-    [ -f "$out/ffprobe.exe" ] || die "x86_64-windows 的 ffprobe.exe 没编出来"
-    echo "    $("$out/ffmpeg.exe" -version | head -1)"
-    "$out/ffmpeg.exe" -license 2>&1 | grep -q "Lesser General Public License" \
+    [ -f "$out/bin/ffmpeg.exe" ] || die "x86_64-windows 的 ffmpeg.exe 没编出来"
+    [ -f "$out/bin/ffprobe.exe" ] || die "x86_64-windows 的 ffprobe.exe 没编出来"
+    echo "    $("$out/bin/ffmpeg.exe" -version | head -1)"
+    "$out/bin/ffmpeg.exe" -license 2>&1 | grep -q "Lesser General Public License" \
       || die "x86_64-windows 的 ffmpeg 不是 LGPL：白名单里混进了 GPL / version3 组件"
-    if bad=$("$out/ffmpeg.exe" -buildconf 2>/dev/null \
+    if bad=$("$out/bin/ffmpeg.exe" -buildconf 2>/dev/null \
              | grep -o -- '--enable-\(gpl\|version3\|nonfree\)' | sort -u); [ -n "$bad" ]; then
       die "x86_64-windows 的 ffmpeg -buildconf 里出现了：$(echo "$bad" | tr '\n' ' ')"
     fi
     echo "    许可证：LGPL-2.1+（已核对 ffmpeg -license 与 -buildconf 原文）"
-    du -sh "$out/ffmpeg.exe" "$out/ffprobe.exe" | sed 's/^/    /'
+    du -sh "$out/bin/ffmpeg.exe" "$out/bin/ffprobe.exe" | sed 's/^/    /'
   fi
 }
 
