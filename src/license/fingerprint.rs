@@ -70,7 +70,7 @@ fn platform_identifier() -> Result<String, String> {
         .collect();
 
     unsafe {
-        let mut hkey: HKEY = 0;
+        let mut hkey: HKEY = std::ptr::null_mut();
         let ret = RegOpenKeyExW(
             HKEY_LOCAL_MACHINE,
             subkey.as_ptr(),
