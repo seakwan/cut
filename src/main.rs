@@ -66,6 +66,11 @@ fn print_ffmpeg_env() -> ExitCode {
 }
 
 fn write_output(text: &str) -> ExitCode {
+    // 诊断：把 print 出来的文本写到 %TEMP%，验证 print_ffmpeg_env 跑通
+    let _ = std::fs::write(
+        std::env::temp_dir().join("cut-ffmpeg-env-out.log"),
+        text,
+    );
     #[cfg(windows)]
     {
         // debug 构建里 std::println! 直写控制台，无需这层。只有 release（GUI subsystem）
@@ -87,17 +92,44 @@ fn write_to_inherited_stdout(text: &str) {
     use windows_sys::Win32::System::Console::{GetStdHandle, STD_OUTPUT_HANDLE};
     unsafe {
         let handle = GetStdHandle(STD_OUTPUT_HANDLE);
-        if handle.is_null() || handle == INVALID_HANDLE_VALUE {
-            return;
+        // 诊断：先写到 %TEMP%\cut-ffmpeg-env.log 看 handle 真值和 WriteFile 返回
+        if let Some(h) = handle_checked(handle) {
+            let bytes = text.as_bytes();
+            let mut written = 0u32;
+            let ok = WriteFile(
+                h,
+                bytes.as_ptr(),
+                bytes.len() as u32,
+                &mut written,
+                std::ptr::null_mut(),
+            );
+            let dbg = format!(
+                "handle={:p} bytes={} written={} ok={}\n",
+                h, bytes.len(), written, ok
+            );
+            let _ = std::fs::write(
+                std::env::temp_dir().join("cut-ffmpeg-env-debug.log"),
+                dbg,
+            );
         }
-        let bytes = text.as_bytes();
-        let mut written = 0u32;
-        WriteFile(
-            handle,
-            bytes.as_ptr(),
-            bytes.len() as u32,
-            &mut written,
-            std::ptr::null_mut(),
-        );
     }
+}
+
+#[cfg(windows)]
+unsafe fn handle_checked(handle: *mut core::ffi::c_void) -> Option<*mut core::ffi::c_void> {
+    if handle.is_null() {
+        let _ = std::fs::write(
+            std::env::temp_dir().join("cut-ffmpeg-env-debug.log"),
+            "handle=NULL\n",
+        );
+        return None;
+    }
+    if handle == INVALID_HANDLE_VALUE {
+        let _ = std::fs::write(
+            std::env::temp_dir().join("cut-ffmpeg-env-debug.log"),
+            "handle=INVALID\n",
+        );
+        return None;
+    }
+    Some(handle)
 }
