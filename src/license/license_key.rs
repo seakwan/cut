@@ -79,7 +79,8 @@ pub fn verify_license_key(fingerprint: &str, key: &str) -> Result<LicenseInfo, S
 
     let payload = base32_decode(&raw.to_uppercase())?;
 
-    let mut mac = Hmac::<Sha256>::new_from_slice(&SIGNING_KEY).unwrap();
+    let mut mac = Hmac::<Sha256>::new_from_slice(&SIGNING_KEY)
+        .map_err(|e| format!("HMAC 初始化失败：{e}"))?;
     mac.update(&payload[..17]);
     let expected_tag = mac.finalize().into_bytes();
 
@@ -93,12 +94,18 @@ pub fn verify_license_key(fingerprint: &str, key: &str) -> Result<LicenseInfo, S
     }
 
     let fp_hash = Sha256::digest(fingerprint.as_bytes());
-    let machine_prefix: [u8; 4] = fp_hash[..4].try_into().unwrap();
+    let machine_prefix: [u8; 4] = fp_hash[..4]
+        .try_into()
+        .map_err(|_| "内部错误：哈希前缀长度异常")?;
     if payload[1..5] != machine_prefix {
         return Err("激活码与本机不匹配".to_string());
     }
 
-    let expires_days = u16::from_le_bytes(payload[5..7].try_into().unwrap());
+    let expires_days = u16::from_le_bytes(
+        payload[5..7]
+            .try_into()
+            .map_err(|_| "内部错误：有效期字段长度异常")?,
+    );
     let permanent = expires_days == 0;
 
     let expires = if permanent {
@@ -112,7 +119,8 @@ pub fn verify_license_key(fingerprint: &str, key: &str) -> Result<LicenseInfo, S
         let expires_days_abs = EPOCH_DAYS + expires_days as u64;
         let now_days = now_days_since_epoch();
         if now_days > expires_days_abs {
-            return Err(format!("激活码已过期（到期日：{}）", expires.unwrap()));
+            let date = expires.unwrap_or_default();
+            return Err(format!("激活码已过期（到期日：{date}）"));
         }
     }
 
