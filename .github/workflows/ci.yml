@@ -8,11 +8,10 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  # 开发期性能优化覆盖（和 Cargo.toml 的 [profile.dev.package.] 一致）
   CARGO_PROFILE_DEV_OPT_LEVEL: 3
 
 jobs:
-  # macOS 构建 + 测试
+  # macOS 构建 + 打包
   macos:
     name: macOS (arm64)
     runs-on: macos-latest
@@ -29,29 +28,55 @@ jobs:
         with:
           shared-key: "macos"
 
+      - name: Cache ffmpeg vendor
+        id: cache-ffmpeg-macos
+        uses: actions/cache@v4
+        with:
+          path: vendor/ffmpeg-slim/aarch64-macos
+          key: ffmpeg-macos-arm64-v1-${{ hashFiles('script/build-ffmpeg.sh', 'script/ffmpeg-sources.txt') }}
+
+      - name: Build ffmpeg (macOS)
+        if: steps.cache-ffmpeg-macos.outputs.cache-hit != 'true'
+        run: script/build-ffmpeg.sh
+
       - name: cargo check
         run: cargo check --all-targets
 
       - name: cargo test
         run: cargo test --lib
-        # 集成测试需要 ffmpeg，CI 里不编 vendor，跳过
-        # 如果要跑集成测试，需要先跑 script/build-ffmpeg.sh（约几十分钟）
 
       - name: cargo build --release
         run: cargo build --release
 
-      - name: Upload artifact
+      - name: Build app bundle
+        run: script/bundle-macos.sh --skip-build --no-launch
+
+      - name: Upload Cut.app
         uses: actions/upload-artifact@v4
         with:
-          name: cut-macos
-          path: target/release/cut
+          name: Cut-macOS
+          path: dist/Cut.app
 
-  # Windows 构建检查
+  # Windows 构建 + 打包
   windows:
     name: Windows (x64)
     runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-make
+            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-diffutils
+            tar
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -63,18 +88,33 @@ jobs:
         with:
           shared-key: "windows"
 
+      - name: Cache ffmpeg vendor
+        id: cache-ffmpeg-windows
+        uses: actions/cache@v4
+        with:
+          path: vendor/ffmpeg-slim/x86_64-windows
+          key: ffmpeg-windows-x64-v1-${{ hashFiles('script/build-ffmpeg-windows.sh', 'script/ffmpeg-sources.txt') }}
+
+      - name: Build ffmpeg (Windows)
+        if: steps.cache-ffmpeg-windows.outputs.cache-hit != 'true'
+        run: script/build-ffmpeg-windows.sh --native
+
       - name: cargo check
         run: cargo check --all-targets
-        # gpui-pre 的 build.rs 需要 Windows 资源编译器，windows-latest 自带 MSVC 工具链应该能过
 
       - name: cargo test
         run: cargo test --lib
 
       - name: cargo build --release
+        shell: pwsh
         run: cargo build --release
 
-      - name: Upload artifact
+      - name: Build release bundle
+        shell: pwsh
+        run: .\script\bundle-windows.ps1 -SkipBuild -NoLaunch
+
+      - name: Upload Cut-windows
         uses: actions/upload-artifact@v4
         with:
-          name: cut-windows
-          path: target/release/cut.exe
+          name: Cut-Windows
+          path: dist/Cut-windows
