@@ -127,6 +127,18 @@ Copy-Item (Join-Path $bin_dir "ffmpeg.exe") $bundle
 Copy-Item (Join-Path $bin_dir "ffprobe.exe") $bundle
 Copy-Item -Recurse $licenses_dir (Join-Path $bundle "licenses")
 
+Write-Host "    licenses_dir 内容："
+Get-ChildItem -Force $licenses_dir | ForEach-Object { Write-Host "      $($_.FullName)" }
+Write-Host "    bundle\licenses 内容："
+Get-ChildItem -Force (Join-Path $bundle "licenses") | ForEach-Object { Write-Host "      $($_.FullName)" }
+$expected = Join-Path $bundle "licenses\ffmpeg-slim"
+if (Test-Path $expected) {
+    Write-Host "    $expected 内容："
+    Get-ChildItem -Force $expected | ForEach-Object { Write-Host "      $($_.FullName)" }
+} else {
+    Write-Host "    $expected 不存在！"
+}
+
 # ---- 自检 ----
 
 # 包里的 ffprobe 得真能跑。
