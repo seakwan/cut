@@ -133,4 +133,5 @@ jobs:
             dist/ffmpeg-env.log
             dist/ffmpeg-env-debug.log
             dist/ffmpeg-env-out.log
+            dist/ffmpeg-env-filetype.log
           if-no-files-found: ignore

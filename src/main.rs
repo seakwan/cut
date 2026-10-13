@@ -66,16 +66,20 @@ fn print_ffmpeg_env() -> ExitCode {
 }
 
 fn write_output(text: &str) -> ExitCode {
-    // 诊断：把 print 出来的文本写到 %TEMP%，验证 print_ffmpeg_env 跑通
+    // 打包自检走文件路径，不依赖 stdout：release 包是 GUI 子系统进程，PowerShell
+    // `> $log_file` 的 inherited pipe 句柄 WriteFile 写不进去（CUT_FFMPEG_ENV_OUT
+    // 是给 bundle 脚本传明确目标位置的约定环境变量）。用户从命令行跑
+    // `cut.exe --ffmpeg-env` 看 stdout 时仍走 WriteFile 那条路。
+    if let Ok(path) = std::env::var("CUT_FFMPEG_ENV_OUT") {
+        return write_to_path(&path, text);
+    }
+    // 顺手再写一份 %TEMP% 备份，方便脚本/用户从文件系统抓结果。
     let _ = std::fs::write(
         std::env::temp_dir().join("cut-ffmpeg-env-out.log"),
         text,
     );
     #[cfg(windows)]
     {
-        // debug 构建里 std::println! 直写控制台，无需这层。只有 release（GUI subsystem）
-        // 走这里——绕开 std::io::stdout() 的 broken 检测，直接 WriteFile 到 inherited
-        // STDOUT handle（PowerShell `> $log` 那边是 pipe write 端，写进去就有文件）。
         write_to_inherited_stdout(text);
     }
     #[cfg(not(windows))]
@@ -85,14 +89,29 @@ fn write_output(text: &str) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+fn write_to_path(path: &str, text: &str) -> ExitCode {
+    if let Err(err) = std::fs::write(path, text) {
+        let _ = std::fs::write(
+            std::env::temp_dir().join("cut-ffmpeg-env-out.log"),
+            format!("CUT_FFMPEG_ENV_OUT={path} 写失败：{err}\n{text}"),
+        );
+        return ExitCode::FAILURE;
+    }
+    ExitCode::SUCCESS
+}
+
 #[cfg(windows)]
 fn write_to_inherited_stdout(text: &str) {
-    use windows_sys::Win32::Storage::FileSystem::WriteFile;
+    use windows_sys::Win32::Foundation::GetLastError;
+    use windows_sys::Win32::Storage::FileSystem::{GetFileType, WriteFile, FILE_TYPE_UNKNOWN};
     use windows_sys::Win32::System::Console::{GetStdHandle, STD_OUTPUT_HANDLE};
     unsafe {
         let handle = GetStdHandle(STD_OUTPUT_HANDLE);
-        // 诊断：先写到 %TEMP%\cut-ffmpeg-env-debug.log 看 handle 真值和 WriteFile 返回
+        // 诊断：handle 真值 / GetFileType / WriteFile 返回 / LastError 都写到
+        // %TEMP%\cut-ffmpeg-env-debug.log。这条路服务"用户从命令行跑 --ffmpeg-env
+        // 看 stdout"的场景，build 自检走 CUT_FFMPEG_ENV_OUT，不依赖它。
         if let Some(h) = handle_checked(handle) {
+            let file_type = GetFileType(h);
             let bytes = text.as_bytes();
             let mut written = 0u32;
             let ok = WriteFile(
@@ -102,13 +121,22 @@ fn write_to_inherited_stdout(text: &str) {
                 &mut written,
                 std::ptr::null_mut(),
             );
+            let last_err = if ok == 0 { GetLastError() } else { 0 };
             let dbg = format!(
-                "handle={:p} bytes={} written={} ok={}\n",
-                h, bytes.len(), written, ok
+                "handle={:p} file_type={} bytes={} written={} ok={} last_err={}\n",
+                h, file_type, bytes.len(), written, ok, last_err
             );
             let _ = std::fs::write(
                 std::env::temp_dir().join("cut-ffmpeg-env-debug.log"),
                 dbg,
+            );
+            let _ = std::fs::write(
+                std::env::temp_dir().join("cut-ffmpeg-env-filetype.log"),
+                if file_type == FILE_TYPE_UNKNOWN {
+                    "file_type=UNKNOWN\n".to_string()
+                } else {
+                    format!("file_type={}\n", file_type)
+                },
             );
         }
     }

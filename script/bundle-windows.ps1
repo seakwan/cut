@@ -159,7 +159,8 @@ $log_file = Join-Path $dist "ffmpeg-env.log"
 # 时，exe 同目录的 ffmpeg 会被找到。如果用户 PATH 上有 ffmpeg，这个自检会报告「系统 PATH」
 # 而不是「可执行文件同目录」——这是预期行为，不是 bug。
 $env:CUT_FFMPEG_DIR = $null
-& $cut_exe --ffmpeg-env > $log_file 2>&1
+$env:CUT_FFMPEG_ENV_OUT = $log_file
+& $cut_exe --ffmpeg-env | Out-Null
 if ($LASTEXITCODE -ne 0) {
     Get-Content $log_file | ForEach-Object { Write-Host "    $_" }
     Die "包起来的 app 没能解析到 ffmpeg"
@@ -169,6 +170,7 @@ $log_content = Get-Content $log_file -Raw
 if (-not ($log_content -match "来源：可执行文件同目录")) {
     Copy-Item "$env:TEMP\cut-ffmpeg-env-debug.log" (Join-Path $dist "ffmpeg-env-debug.log") -Force -ErrorAction SilentlyContinue
     Copy-Item "$env:TEMP\cut-ffmpeg-env-out.log" (Join-Path $dist "ffmpeg-env-out.log") -Force -ErrorAction SilentlyContinue
+    Copy-Item "$env:TEMP\cut-ffmpeg-env-filetype.log" (Join-Path $dist "ffmpeg-env-filetype.log") -Force -ErrorAction SilentlyContinue
     Die "解析到的不是 exe 同目录那份，见 $log_file"
 }
 if (-not ($log_content -match [regex]::Escape($bundle))) {
