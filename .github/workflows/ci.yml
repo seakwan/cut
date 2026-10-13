@@ -74,6 +74,7 @@ jobs:
           install: >-
             make
             mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-nasm
             mingw-w64-ucrt-x86_64-pkg-config
             mingw-w64-ucrt-x86_64-diffutils
             tar
