@@ -93,11 +93,13 @@ if [ "$native" -eq 1 ]; then
   ranlib="ranlib"
   strip_cmd="strip"
   host_flag="--host=x86_64-w64-mingw32"
-  # MSYS2 的 make 可能是 gmake 或 make
-  if command -v mingw32-make >/dev/null 2>&1; then
-    make_cmd="mingw32-make"
-  else
+  # autotools 生成物必须用 MSYS 的 make 跑：configure 找不到 make 时会把
+  # SET_MAKE 写成 MAKE=make，递归子 make 全部去调一个不存在的 make。
+  # mingw32-make 只做兜底，它跑不了 sh 语法的配方。
+  if command -v make >/dev/null 2>&1; then
     make_cmd="make"
+  else
+    make_cmd="mingw32-make"
   fi
 else
   # 交叉编译：用 mingw-w64 前缀
