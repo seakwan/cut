@@ -22,7 +22,7 @@ die() {
   exit 1
 }
 
-[ -f "$src" ] || die "找不到源图 $src（放一张 1024×1024 的 PNG 到 assets/icon-1024.png）"
+[ -f "$src" ] || die "找不到源图 ${src}（放一张 1024×1024 的 PNG 到 assets/icon-1024.png）"
 
 for tool in sips iconutil; do
   command -v "$tool" >/dev/null || die "缺 $tool"
@@ -51,5 +51,5 @@ mkdir -p "$(dirname "$out")"
 iconutil -c icns "$iconset" -o "$out"
 [ -f "$out" ] || die "iconutil 没产出 $out"
 
-echo "==> $out（$(du -h "$out" | cut -f1)）"
+echo "==> ${out}（$(du -h "$out" | cut -f1)）"
 echo "    下一步：script/bundle-macos.sh 会自动把它塞进 Contents/Resources/ 并写 CFBundleIconFile"

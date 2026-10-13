@@ -101,7 +101,7 @@ else
   make_cmd="make"
 fi
 
-command -v "$cc" >/dev/null 2>&1 || die "找不到 $cc。交叉编译装 brew install mingw-w64；MSYS2 装 pacman -S mingw-w64-x86_64-gcc"
+command -v "$cc" >/dev/null 2>&1 || die "找不到 ${cc}。交叉编译装 brew install mingw-w64；MSYS2 装 pacman -S mingw-w64-x86_64-gcc"
 command -v "$make_cmd" >/dev/null 2>&1 || die "找不到 $make_cmd"
 command -v "$strip_cmd" >/dev/null 2>&1 || die "找不到 $strip_cmd"
 
@@ -150,7 +150,7 @@ fetch_source() {
     $actual
 回填进 $pins 再跑一次。"
   fi
-  [ "$actual" = "$want" ] || die "$name-$version 校验不过：期望 $want，实际 $actual"
+  [ "$actual" = "$want" ] || die "$name-$version 校验不过：期望 ${want}，实际 $actual"
 
   echo "    解包 $name-$version"
   if [ "$dry_run" -eq 0 ]; then
@@ -183,7 +183,7 @@ build_autotools_dep() {
     return 0
   fi
 
-  echo "    编 $dir（x86_64-windows）"
+  echo "    编 ${dir}（x86_64-windows）"
   if [ "$dry_run" -eq 1 ]; then
     echo "      [dry-run] (cd $src && ./configure --prefix=$prefix $host_flag CC=$cc CXX=$cxx AR=$ar RANLIB=$ranlib ... && $make_cmd -j$(sysctl -n hw.ncpu 2>/dev/null || echo 4) && $make_cmd install)"
     return 0
@@ -264,7 +264,7 @@ verify_components() {
       if grep -qx "$key" "$srcdir/ffbuild/config.mak"; then
         continue
       fi
-      echo "    ✗ $kind 里的 $name 没生效（$srcdir/ffbuild/config.mak 里没有 $key）" >&2
+      echo "    ✗ $kind 里的 $name 没生效（$srcdir/ffbuild/config.mak 里没有 ${key}）" >&2
       missing=1
     done
     unset IFS
@@ -315,7 +315,7 @@ build_ffmpeg() {
   local prefix=$1 out=$2
   local src="$build_root/src/ffmpeg-$ffmpeg_version"
 
-  say "编 ffmpeg-$ffmpeg_version（x86_64-windows）"
+  say "编 ffmpeg-${ffmpeg_version}（x86_64-windows）"
   [ "$dry_run" -eq 0 ] && mkdir -p "$out"
 
   local -a flags=()

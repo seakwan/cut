@@ -86,7 +86,7 @@ resolve_arches() {
     host) host_arch ;;
     arm64 | x86_64) echo "$arch" ;;
     both) echo "arm64 x86_64" ;;
-    *) die "不认得的 --arch：$arch（arm64 / x86_64 / both / host）" ;;
+    *) die "不认得的 --arch：${arch}（arm64 / x86_64 / both / host）" ;;
   esac
 }
 
@@ -166,12 +166,12 @@ fetch_source() {
     $actual
 回填进 $pins 再跑一次。"
   fi
-  [ "$actual" = "$want" ] || die "$name-$version 校验不过：期望 $want，实际 $actual"
+  [ "$actual" = "$want" ] || die "$name-$version 校验不过：期望 ${want}，实际 $actual"
 
   echo "    解包 $name-$version"
   if [ "$dry_run" -eq 0 ]; then
     tar -xf "$tarball" -C "$build_root/src"
-    [ -d "$dest" ] || die "解包后找不到 $dest（tarball 顶层目录名对不上）"
+    [ -d "$dest" ] || die "解包后找不到 ${dest}（tarball 顶层目录名对不上）"
   fi
 }
 
@@ -212,7 +212,7 @@ build_autotools_dep() {
     return 0
   fi
 
-  echo "    编 $dir（$a）"
+  echo "    编 ${dir}（${a}）"
   if [ "$dry_run" -eq 1 ]; then
     echo "      [dry-run] (cd $src && ./configure --prefix=$prefix $(host_flag_for "$a") $* && make -j$jobs && make install)"
     return 0
@@ -335,7 +335,7 @@ verify_components() {
       if grep -qx "$key" "$srcdir/ffbuild/config.mak"; then
         continue
       fi
-      echo "    ✗ $kind 里的 $name 没生效（$srcdir/ffbuild/config.mak 里没有 $key）" >&2
+      echo "    ✗ $kind 里的 $name 没生效（$srcdir/ffbuild/config.mak 里没有 ${key}）" >&2
       missing=1
     done
     unset IFS
@@ -396,7 +396,7 @@ build_ffmpeg() {
   local a=$1 prefix=$2 out=$3
   local src="$build_root/src/ffmpeg-$ffmpeg_version"
 
-  echo "    编 ffmpeg-$ffmpeg_version（$a）"
+  echo "    编 ffmpeg-${ffmpeg_version}（${a}）"
   [ "$dry_run" -eq 0 ] && mkdir -p "$out"
 
   # 每行一个 flag；带空格的（--cc、--extra-cflags）用 while read 原样读进数组，

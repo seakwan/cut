@@ -97,10 +97,10 @@ bin_dir="$vendor_root/$triple"
 command -v codesign >/dev/null 2>&1 || die "找不到 codesign（装一下 Xcode Command Line Tools）"
 
 for name in ffmpeg ffprobe; do
-  [ -f "$bin_dir/$name" ] || die "缺 $bin_dir/$name，先跑 script/build-ffmpeg.sh（约几十分钟，需要 nasm）"
+  [ -f "$bin_dir/$name" ] || die "缺 $bin_dir/${name}，先跑 script/build-ffmpeg.sh（约几十分钟，需要 nasm）"
   [ -x "$bin_dir/$name" ] || die "$bin_dir/$name 没有可执行权限"
 done
-[ -d "$licenses_dir" ] || die "缺 $licenses_dir：LGPL 要求随包带上 ffmpeg 的许可证、出处与构建证据"
+[ -d "$licenses_dir" ] || die "缺 ${licenses_dir}：LGPL 要求随包带上 ffmpeg 的许可证、出处与构建证据"
 
 # 再问一遍二进制自己是不是 LGPL。build-ffmpeg.sh 编完时查过一次，但那是**编的时候**；
 # 这中间有人可能手工往 vendor/ffmpeg-slim/ 里塞过别的构建。发布包的许可证面写死在
@@ -124,7 +124,7 @@ if [ "$skip_build" -eq 0 ]; then
 fi
 
 exe="$root/target/release/cut"
-[ -f "$exe" ] || die "没有 $exe；去掉 --skip-build 让它构建一次"
+[ -f "$exe" ] || die "没有 ${exe}；去掉 --skip-build 让它构建一次"
 
 # 版本号跟着 Cargo.toml 走，别在这儿再写一份然后慢慢对不上。
 version=$(awk -F'"' '/^version[ \t]*=/ { print $2; exit }' "$root/Cargo.toml")
@@ -210,7 +210,7 @@ for name in ffprobe ffmpeg; do
     # 不然自编的二进制会被报成「保留上游签名（）」——括号里空的，纯属误导。
     authority=$(codesign -dvv "$nested" 2>&1 | awk -F': ' '/^Authority=/ { print $2; exit }')
     if [ -n "$authority" ]; then
-      echo "==> $name 保留已有签名（$authority）"
+      echo "==> $name 保留已有签名（${authority}）"
     else
       echo "==> $name 是本仓库自编的，沿用链接器生成的 ad-hoc 签名"
     fi
@@ -222,7 +222,7 @@ for name in ffprobe ffmpeg; do
   fi
 done
 
-echo "==> 签名 $app_name.app（identity: $identity）"
+echo "==> 签名 $app_name.app（identity: ${identity}）"
 # --timestamp=none：ad-hoc 签名没有时间戳可打，不加这个参数 codesign 会去连苹果的时间戳服务器。
 codesign --force --sign "$identity" --timestamp=none "$app"
 
@@ -239,7 +239,7 @@ codesign --verify --deep --strict --verbose=2 "$app"
 # 少一份 LICENSE.txt 不是排版问题，是 LGPL 分发义务没履行。
 for f in NOTICE.txt LICENSE.txt; do
   [ -f "$app/Contents/Resources/licenses/ffmpeg-slim/$f" ] \
-    || die "包里缺 licenses/ffmpeg-slim/$f，而 Info.plist 已经指着它了"
+    || die "包里缺 licenses/ffmpeg-slim/${f}，而 Info.plist 已经指着它了"
 done
 
 # Info.plist 是上面用 heredoc 拼出来的，拼坏一个字符整包就打不开（Finder 只说"已损坏"），
@@ -250,7 +250,7 @@ plutil -lint "$app/Contents/Info.plist" >/dev/null || die "Info.plist 格式不�
 # 属于"看起来打包成功了、实际没生效"的那类问题。
 icon_key=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$app/Contents/Info.plist" 2>/dev/null || true)
 if [ -n "$icon_key" ]; then
-  [ -f "$app/Contents/Resources/$icon_key" ] || die "plist 指着 $icon_key，包里却没有这个文件"
+  [ -f "$app/Contents/Resources/$icon_key" ] || die "plist 指着 ${icon_key}，包里却没有这个文件"
 fi
 
 echo "==> 解析自检（屏蔽 PATH 上的 ffmpeg，只留系统目录）"
