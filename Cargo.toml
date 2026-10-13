@@ -15,14 +15,16 @@ serde_json = "1"
 # 所以这一行不带来任何新的编译量，别换成 std::sync::mpsc：那个 recv 会把执行器线程堵死。
 smol = "2"
 
-# 只在 Windows 上用，且只为 `--ffmpeg-env` 让 release 包接回父进程控制台——GUI 子系统
-# 进程启动时没分配控制台，AttachConsole(ATTACH_PARENT_PROCESS) 把我们接回 PowerShell /
-# cmd 的控制台。但 **不要** SetStdHandle 替换 std 句柄——父进程 `>` 重定向时子进程 inherit
-# 的是 pipe 句柄（指向文件），把它换成 CONOUT\$ 会让重定向失效。CI 自检靠 `> $log` 拿
-# `--ffmpeg-env` 输出，没 AttachConsole PowerShell `>` 抓不到东西。
+# 只在 Windows 上用，且只为 `--ffmpeg-env` 让 release 包把诊断输出写到 inherited
+# STDOUT 句柄（PowerShell `> $log` 重定向创建的 pipe）。用例：release 包里
+# `windows_subsystem = "windows"` 启动的 GUI 子系统进程，Rust std::println! 不写到 inherited
+# pipe（Rust std 在 stdout 初始化时检测到 invalid default handle，就把 stdout 标成 broken）。
+# 我们直接 WriteFile(GetStdHandle(STD_OUTPUT_HANDLE)) 绕开这层。
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
     "Win32_System_Console",
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
 ] }
 
 [dev-dependencies]
