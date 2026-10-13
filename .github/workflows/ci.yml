@@ -110,7 +110,7 @@ jobs:
 
       - name: cargo build --release
         shell: pwsh
-        run: cargo build --release
+        run: cargo build --release --target x86_64-pc-windows-msvc
 
       - name: Build release bundle
         shell: pwsh
