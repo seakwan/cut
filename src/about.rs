@@ -1,4 +1,4 @@
-//! 关于页：应用版本、ffmpeg 来源与随包许可说明。
+//! 关于页：应用版本、机器码、授权状态、ffmpeg 来源与随包许可说明。
 //!
 //! LGPL-2.1 §6 要求随二进制分发时提供许可证文本。包里已经带了
 //! licenses/ffmpeg-slim/（bundle 脚本负责放、bundle 自检负责验），这里把它
@@ -11,18 +11,26 @@ use gpui_kit::component::button::Button;
 use gpui_kit::component::{ActiveTheme, Disableable as _, Sizable as _, StyledExt as _};
 use gpui_kit::*;
 
+use crate::license::{self, LicenseStatus};
 use crate::media::{no_console_window, FfmpegEnv, ResolveError};
 
 pub struct AboutView {
     ffmpeg: Result<FfmpegEnv, ResolveError>,
     licenses_dir: Option<PathBuf>,
+    fingerprint: String,
+    license_status: LicenseStatus,
 }
 
 impl AboutView {
     pub fn new(ffmpeg: Result<FfmpegEnv, ResolveError>) -> Self {
+        let fingerprint = license::machine_fingerprint().unwrap_or_default();
+        let license_status = license::check_status(&fingerprint);
+
         Self {
             ffmpeg,
             licenses_dir: resolve_licenses_dir(),
+            fingerprint,
+            license_status,
         }
     }
 
@@ -59,6 +67,21 @@ impl Render for AboutView {
             Err(_) => "ffmpeg / ffprobe：未找到".to_string(),
         };
 
+        let machine_id = license::display_fingerprint(&self.fingerprint);
+        let license_line = match &self.license_status {
+            LicenseStatus::Trial { remaining } => format!("试用中（剩余 {remaining} 次）"),
+            LicenseStatus::Expired { .. } => "试用已到期".to_string(),
+            LicenseStatus::Licensed { permanent, expires } => {
+                if *permanent {
+                    "已激活（永久）".to_string()
+                } else if let Some(date) = expires {
+                    format!("已激活（到期：{date}）")
+                } else {
+                    "已激活".to_string()
+                }
+            }
+        };
+
         div()
             .v_flex()
             .size_full()
@@ -71,6 +94,35 @@ impl Render for AboutView {
                 div()
                     .text_color(theme.muted_foreground)
                     .child("本地音频切割与格式转换。所有处理都在本机完成，不上传任何文件。"),
+            )
+            .child(
+                div()
+                    .h_flex()
+                    .items_center()
+                    .gap_2()
+                    .child(div().text_color(theme.muted_foreground).child("机器码："))
+                    .child(div().child(machine_id.clone()))
+                    .child(
+                        Button::new("copy-machine-id")
+                            .label("复制")
+                            .small()
+                            .on_click({
+                                let machine_id = machine_id.clone();
+                                move |_, _, cx| {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(
+                                        machine_id.clone(),
+                                    ));
+                                }
+                            }),
+                    ),
+            )
+            .child(
+                div()
+                    .h_flex()
+                    .items_center()
+                    .gap_2()
+                    .child(div().text_color(theme.muted_foreground).child("授权状态："))
+                    .child(div().child(license_line)),
             )
             .child(ffmpeg_line)
             .child(

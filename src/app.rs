@@ -1,13 +1,16 @@
-//! 应用外壳：只负责窗口级的东西——标签页切换、ffmpeg 可用性提示。
+//! 应用外壳：只负责窗口级的东西——标签页切换、ffmpeg 可用性提示、授权横幅。
 //!
 //! 功能逻辑全在 `split` / `convert` 两个 feature 里，外壳不认识它们的设置项。
 
 use gpui_kit::component::tab::{Tab, TabBar};
 use gpui_kit::component::{ActiveTheme, StyledExt as _};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::about::AboutView;
 use crate::convert::ConvertView;
+use crate::license::{self, LicenseStatus};
+use crate::license_view;
 use crate::media::{FfmpegEnv, ResolveError};
 use crate::split::SplitView;
 
@@ -17,6 +20,8 @@ pub struct AppView {
     split: Entity<SplitView>,
     convert: Entity<ConvertView>,
     about: Entity<AboutView>,
+    fingerprint: String,
+    license_status: LicenseStatus,
 }
 
 impl AppView {
@@ -29,19 +34,32 @@ impl AppView {
         let convert_ffmpeg = ffmpeg.clone();
         let about_ffmpeg = ffmpeg.clone();
 
+        // 授权：采集机器指纹 + 记录本次启动。
+        let fingerprint = license::machine_fingerprint().unwrap_or_default();
+        let license_status = license::record_launch(&fingerprint);
+
         Self {
             active_tab: 0,
             ffmpeg,
             split: cx.new(|cx| SplitView::new(window, split_ffmpeg, cx)),
             convert: cx.new(|cx| ConvertView::new(window, convert_ffmpeg, cx)),
             about: cx.new(|_| AboutView::new(about_ffmpeg)),
+            fingerprint,
+            license_status,
         }
+    }
+
+    /// 激活成功后由对话框回调调用，更新状态并触发重画。
+    pub fn set_license_status(&mut self, status: LicenseStatus) {
+        self.license_status = status;
     }
 }
 
 impl Render for AppView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
+        let app_entity = cx.entity().clone();
+        let fingerprint = self.fingerprint.clone();
 
         div()
             .v_flex()
@@ -49,6 +67,9 @@ impl Render for AppView {
             .bg(theme.background)
             .text_color(theme.foreground)
             .child(self.render_ffmpeg_status(cx))
+            .when_some(license_view::render_banner(&self.license_status, move |_, window, cx| {
+                license_view::open_activation_dialog(app_entity.clone(), fingerprint.clone(), window, cx);
+            }), |this, banner| this.child(banner))
             .child(
                 div().px_3().pt_2().child(
                     TabBar::new("main-tabs")

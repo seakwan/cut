@@ -19,6 +19,8 @@ pub mod components;
 pub mod convert;
 pub mod format;
 pub mod jobs;
+pub mod license;
+pub mod license_view;
 pub mod media;
 pub mod pick;
 pub mod runner;

@@ -1369,10 +1369,14 @@ dependencies = [
 name = "cut"
 version = "0.1.0"
 dependencies = [
+ "aes",
+ "cbc",
  "gpui-kit",
+ "hmac",
  "rfd",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "smol",
  "windows-sys 0.61.2",
 ]
