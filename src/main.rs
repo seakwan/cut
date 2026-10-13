@@ -87,12 +87,11 @@ fn write_output(text: &str) -> ExitCode {
 
 #[cfg(windows)]
 fn write_to_inherited_stdout(text: &str) {
-    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
     use windows_sys::Win32::Storage::FileSystem::WriteFile;
     use windows_sys::Win32::System::Console::{GetStdHandle, STD_OUTPUT_HANDLE};
     unsafe {
         let handle = GetStdHandle(STD_OUTPUT_HANDLE);
-        // 诊断：先写到 %TEMP%\cut-ffmpeg-env.log 看 handle 真值和 WriteFile 返回
+        // 诊断：先写到 %TEMP%\cut-ffmpeg-env-debug.log 看 handle 真值和 WriteFile 返回
         if let Some(h) = handle_checked(handle) {
             let bytes = text.as_bytes();
             let mut written = 0u32;
@@ -117,6 +116,7 @@ fn write_to_inherited_stdout(text: &str) {
 
 #[cfg(windows)]
 unsafe fn handle_checked(handle: *mut core::ffi::c_void) -> Option<*mut core::ffi::c_void> {
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
     if handle.is_null() {
         let _ = std::fs::write(
             std::env::temp_dir().join("cut-ffmpeg-env-debug.log"),
