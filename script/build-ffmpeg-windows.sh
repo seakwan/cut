@@ -71,6 +71,15 @@ done
 
 say() { echo "==> $*"; }
 
+# sha256 校验：MSYS2 只有 GNU coreutils 的 sha256sum，macOS 上交叉编译时只有 shasum。
+sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$@"
+  else
+    shasum -a 256 "$@"
+  fi
+}
+
 # Rust 的 std::env::consts::OS 在 Windows 上是 "windows"，不是 "mingw32"
 rust_triple() { echo "x86_64-windows"; }
 
@@ -144,7 +153,7 @@ fetch_source() {
     mv "$tarball.part" "$tarball"
   fi
 
-  actual=$(shasum -a 256 "$tarball" | awk '{ print $1 }')
+  actual=$(sha256 "$tarball" | awk '{ print $1 }')
   if [ "$want" = PENDING ]; then
     die "$name-$version 的 sha256 还是 PENDING。实际值：
     $actual
@@ -399,7 +408,7 @@ write_license_evidence() {
     $cc --version | head -1
     echo
     echo "===== 二进制 sha256 ====="
-    ( cd "$out" && shasum -a 256 ffmpeg.exe ffprobe.exe )
+    ( cd "$out" && sha256 ffmpeg.exe ffprobe.exe )
     echo
     echo "===== ffmpeg -version ====="
     "$out/ffmpeg.exe" -version
