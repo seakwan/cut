@@ -16,6 +16,11 @@ pub fn render_banner(
     status: &LicenseStatus,
     on_activate: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Option<impl IntoElement> {
+    // Licensed 时不显示横幅，提前返回，避免调用 banner_colors（它对 Licensed 是 unreachable）。
+    if matches!(status, LicenseStatus::Licensed { .. }) {
+        return None;
+    }
+
     let theme_colors = banner_colors(status);
     let (text, show_button) = match status {
         LicenseStatus::Trial { remaining } => {
@@ -172,23 +177,32 @@ pub fn open_activation_dialog(
                             let app_view = app_view.clone();
 
                             move |_, _, cx| {
+                                eprintln!("[license_view] on_ok callback started");
                                 let key = key_input.read(cx).value().to_string();
+                                eprintln!("[license_view] key read, len={}", key.len());
                                 if key.trim().is_empty() {
+                                    eprintln!("[license_view] key is empty");
                                     error_text.update(cx, |text, _| {
                                         *text = "请输入激活码".to_string();
                                     });
                                     return false;
                                 }
 
+                                eprintln!("[license_view] calling activate_license");
                                 match license::activate_license(&fingerprint, key.trim()) {
                                     Ok(status) => {
+                                        eprintln!("[license_view] activate_license succeeded");
                                         app_view.update(cx, |this, cx| {
+                                            eprintln!("[license_view] updating app_view license status");
                                             this.set_license_status(status, cx);
                                             cx.notify();
+                                            eprintln!("[license_view] app_view updated");
                                         });
+                                        eprintln!("[license_view] returning true from on_ok");
                                         true
                                     }
                                     Err(err) => {
+                                        eprintln!("[license_view] activate_license failed: {}", err);
                                         error_text.update(cx, |text, _| {
                                             *text = err;
                                         });

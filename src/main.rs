@@ -21,6 +21,10 @@ use gpui_kit::*;
 const FFMPEG_ENV_FLAG: &str = "--ffmpeg-env";
 
 fn main() -> ExitCode {
+    //  panic hook：Windows GUI 程序看不到 stderr，把 panic 信息写到文件方便排查。
+    // 0xc0000409 闪退时能靠这个拿到堆栈。
+    install_panic_hook();
+
     if std::env::args().any(|arg| arg == FFMPEG_ENV_FLAG) {
         return print_ffmpeg_env();
     }
@@ -160,4 +164,39 @@ unsafe fn handle_checked(handle: *mut core::ffi::c_void) -> Option<*mut core::ff
         return None;
     }
     Some(handle)
+}
+
+/// panic hook：把 panic 信息写到文件，Windows GUI 程序看不到 stderr。
+fn install_panic_hook() {
+    std::panic::set_hook(Box::new(|info| {
+        let payload = if let Some(s) = info.payload().downcast_ref::<&str>() {
+            s.to_string()
+        } else if let Some(s) = info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "unknown payload".to_string()
+        };
+        let location = info
+            .location()
+            .map(|loc| format!("{}:{}:{}", loc.file(), loc.line(), loc.column()))
+            .unwrap_or_else(|| "unknown location".to_string());
+        let backtrace = std::backtrace::Backtrace::force_capture().to_string();
+        let msg = format!(
+            "=== Cut Panic ===\npayload: {}\nlocation: {}\nbacktrace:\n{}\n",
+            payload, location, backtrace
+        );
+        // 写到 %TEMP%\cut-panic.log，追加模式保留历史。
+        let path = std::env::temp_dir().join("cut-panic.log");
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .ok();
+        if let Some(ref mut f) = file {
+            use std::io::Write;
+            let _ = f.write_all(msg.as_bytes());
+        }
+        // 同时写 stderr，debug 构建或命令行启动时能看到。
+        eprintln!("{msg}");
+    }));
 }

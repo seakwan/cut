@@ -160,14 +160,17 @@ pub fn record_launch(fingerprint: &str) -> LicenseStatus {
 
 /// 尝试激活。成功返回新的状态。
 pub fn activate_license(fingerprint: &str, key: &str) -> Result<LicenseStatus, String> {
+    eprintln!("[activate_license] start, fingerprint len={}, key len={}", fingerprint.len(), key.len());
     if fingerprint.is_empty() {
         return Err("机器指纹为空".to_string());
     }
 
     let info = verify_license_key(fingerprint, key)?;
+    eprintln!("[activate_license] verify ok, permanent={}", info.permanent);
 
     // 写入 license 文件
     let path = license_file_path()?;
+    eprintln!("[activate_license] license path: {:?}", path);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("创建数据目录失败：{e}"))?;
@@ -175,6 +178,7 @@ pub fn activate_license(fingerprint: &str, key: &str) -> Result<LicenseStatus, S
 
     let content = serde_json::to_string(&info).map_err(|e| format!("序列化失败：{e}"))?;
     std::fs::write(&path, content).map_err(|e| format!("写 license.dat 失败：{e}"))?;
+    eprintln!("[activate_license] license.dat written");
 
     Ok(LicenseStatus::Licensed {
         permanent: info.permanent,
