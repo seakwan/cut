@@ -113,9 +113,9 @@ pub fn record_launch(fingerprint: &str) -> LicenseStatus {
     let mut payload = match trial::load_trial(fingerprint) {
         Ok(Some(p)) => p,
         Ok(None) => {
-            // 试用文件被删除，重新开始试用（可接受的折中）
+            // 首次启动，创建试用记录
             let now = now_timestamp();
-            TrialPayload {
+            let payload = TrialPayload {
                 v: 1,
                 mid: fingerprint.to_string(),
                 n: 1,
@@ -123,7 +123,13 @@ pub fn record_launch(fingerprint: &str) -> LicenseStatus {
                 tsn: now,
                 tsm: now,
                 nonce: random_nonce(),
+            };
+            if let Err(e) = trial::save_trial(fingerprint, &payload) {
+                eprintln!("创建试用记录失败：{e}");
             }
+            return LicenseStatus::Trial {
+                remaining: TRIAL_LAUNCHES - 1,
+            };
         }
         Err(_) => {
             return LicenseStatus::Expired {

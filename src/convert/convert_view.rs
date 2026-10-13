@@ -33,6 +33,8 @@ pub struct ConvertView {
     overwrite_select: Entity<SelectState<SearchableVec<String>>>,
     /// 视图必须活得比它久：`Scheduler` 一掉，正在跑的那批会被 `RunHandle::drop` 杀掉。
     scheduler: Scheduler,
+    /// 授权已到期时禁用"开始"按钮。
+    license_expired: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -40,6 +42,7 @@ impl ConvertView {
     pub fn new(
         window: &mut Window,
         ffmpeg: Result<FfmpegEnv, ResolveError>,
+        license_expired: bool,
         cx: &mut Context<Self>,
     ) -> Self {
         let defaults = ConvertSettings::default();
@@ -136,6 +139,7 @@ impl ConvertView {
             concurrency_select,
             overwrite_select,
             scheduler,
+            license_expired,
             _subscriptions: vec![
                 target_changed,
                 quality_changed,
@@ -147,6 +151,12 @@ impl ConvertView {
 
     pub fn store(&self) -> Entity<JobStore> {
         self.store.clone()
+    }
+
+    /// 授权状态变化时由 AppView 调用，更新后触发重画。
+    pub fn set_license_expired(&mut self, expired: bool, cx: &mut Context<Self>) {
+        self.license_expired = expired;
+        cx.notify();
     }
 
     fn update_settings(&self, cx: &mut Context<Self>, apply: impl FnOnce(&mut ConvertSettings)) {
@@ -253,7 +263,7 @@ impl Render for ConvertView {
             Rc::new(move |id, window, cx| select(id, window, cx))
         };
 
-        let can_start = snapshot.has_files && !snapshot.busy;
+        let can_start = snapshot.has_files && !snapshot.busy && !self.license_expired;
         let has_files = snapshot.has_files;
         let busy = snapshot.busy;
         let writes_onto_itself = snapshot.writes_onto_itself;

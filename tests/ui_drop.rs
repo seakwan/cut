@@ -29,7 +29,8 @@ fn fixture_root() -> PathBuf {
 fn drop_zone_takes_folders_and_single_files(cx: &mut TestAppContext) {
     cx.update(init);
     let dir = fixture_root();
-    let window = cx.add_window(|window, cx| SplitView::new(window, FfmpegEnv::resolve(), cx));
+    let window =
+        cx.add_window(|window, cx| SplitView::new(window, FfmpegEnv::resolve(), false, cx));
     let store = window.update(cx, |view, _, _| view.store()).unwrap();
     // 派发事件会回调视图，不能再借着视图的 update 做，否则实体重入。
     let window: AnyWindowHandle = window.into();

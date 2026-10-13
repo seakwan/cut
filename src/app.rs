@@ -37,12 +37,13 @@ impl AppView {
         // 授权：采集机器指纹 + 记录本次启动。
         let fingerprint = license::machine_fingerprint().unwrap_or_default();
         let license_status = license::record_launch(&fingerprint);
+        let license_expired = matches!(license_status, LicenseStatus::Expired { .. });
 
         Self {
             active_tab: 0,
             ffmpeg,
-            split: cx.new(|cx| SplitView::new(window, split_ffmpeg, cx)),
-            convert: cx.new(|cx| ConvertView::new(window, convert_ffmpeg, cx)),
+            split: cx.new(|cx| SplitView::new(window, split_ffmpeg, license_expired, cx)),
+            convert: cx.new(|cx| ConvertView::new(window, convert_ffmpeg, license_expired, cx)),
             about: cx.new(|_| AboutView::new(about_ffmpeg)),
             fingerprint,
             license_status,
@@ -50,8 +51,13 @@ impl AppView {
     }
 
     /// 激活成功后由对话框回调调用，更新状态并触发重画。
-    pub fn set_license_status(&mut self, status: LicenseStatus) {
+    pub fn set_license_status(&mut self, status: LicenseStatus, cx: &mut Context<Self>) {
+        let expired = matches!(status, LicenseStatus::Expired { .. });
         self.license_status = status;
+        self.split
+            .update(cx, |view, cx| view.set_license_expired(expired, cx));
+        self.convert
+            .update(cx, |view, cx| view.set_license_expired(expired, cx));
     }
 }
 

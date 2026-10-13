@@ -51,6 +51,8 @@ pub struct SplitView {
     /// 探测排队、ffmpeg 调度、进度回传、取消，全在这里面。
     /// 视图必须活得比它久：`Scheduler` 一掉，正在跑的那批会被 `RunHandle::drop` 杀掉。
     scheduler: Scheduler,
+    /// 授权已到期时禁用"开始"按钮。
+    license_expired: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -58,6 +60,7 @@ impl SplitView {
     pub fn new(
         window: &mut Window,
         ffmpeg: Result<FfmpegEnv, ResolveError>,
+        license_expired: bool,
         cx: &mut Context<Self>,
     ) -> Self {
         let defaults = SplitSettings::default();
@@ -144,6 +147,7 @@ impl SplitView {
             concurrency_select,
             overwrite_select,
             scheduler,
+            license_expired,
             _subscriptions: vec![
                 value_changed,
                 template_changed,
@@ -155,6 +159,12 @@ impl SplitView {
 
     pub fn store(&self) -> Entity<JobStore> {
         self.store.clone()
+    }
+
+    /// 授权状态变化时由 AppView 调用，更新后触发重画。
+    pub fn set_license_expired(&mut self, expired: bool, cx: &mut Context<Self>) {
+        self.license_expired = expired;
+        cx.notify();
     }
 
     fn settings(&self, cx: &App) -> SplitSettings {
@@ -307,7 +317,8 @@ impl Render for SplitView {
             Rc::new(move |id, window, cx| select(id, window, cx))
         };
 
-        let can_start = snapshot.has_files && !snapshot.busy && self.value_ok;
+        let can_start =
+            snapshot.has_files && !snapshot.busy && self.value_ok && !self.license_expired;
         let exact = snapshot.settings.exact;
         let has_files = snapshot.has_files;
         let has_flac = snapshot.has_flac;

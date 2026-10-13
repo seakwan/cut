@@ -183,7 +183,7 @@ pub fn open_activation_dialog(
                                 match license::activate_license(&fingerprint, key.trim()) {
                                     Ok(status) => {
                                         app_view.update(cx, |this, cx| {
-                                            this.set_license_status(status);
+                                            this.set_license_status(status, cx);
                                             cx.notify();
                                         });
                                         true

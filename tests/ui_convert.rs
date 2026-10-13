@@ -103,7 +103,8 @@ fn dropping_an_m4a_and_clicking_start_produces_an_mp3(cx: &mut TestAppContext) {
     let out = dir.mkdir("out");
     let source = sine(&env, &dir, "tone.m4a", AudioFormat::M4a);
 
-    let window = cx.add_window(|window, cx| ConvertView::new(window, FfmpegEnv::resolve(), cx));
+    let window =
+        cx.add_window(|window, cx| ConvertView::new(window, FfmpegEnv::resolve(), false, cx));
     let store = window.update(cx, |view, _, _| view.store()).unwrap();
     // 派发事件会回调视图，不能再借着视图的 update 做，否则实体重入。
     let window: AnyWindowHandle = window.into();
@@ -183,7 +184,8 @@ fn the_collision_warning_follows_the_settings(cx: &mut TestAppContext) {
     let out = dir.mkdir("out");
     let source = sine(&env, &dir, "tone.m4a", AudioFormat::M4a);
 
-    let window = cx.add_window(|window, cx| ConvertView::new(window, FfmpegEnv::resolve(), cx));
+    let window =
+        cx.add_window(|window, cx| ConvertView::new(window, FfmpegEnv::resolve(), false, cx));
     let store = window.update(cx, |view, _, _| view.store()).unwrap();
     let window: AnyWindowHandle = window.into();
 
